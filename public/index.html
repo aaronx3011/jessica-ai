@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 2.5 Native Audio</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #09090b; color: #fafafa; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { background: #18181b; border: 1px solid #27272a; padding: 2.5rem; border-radius: 1rem; width: 400px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #ef4444; margin-right: 10px; box-shadow: 0 0 8px #ef4444; }
+        .status-dot.online { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+        button { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 0.6rem; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; font-size: 1rem; }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
+        #log { margin-top: 1.5rem; font-size: 0.85rem; color: #a1a1aa; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 style="margin-top:0">Jessica</h2>
+        <div style="margin-bottom: 2rem;">
+            <span id="dot" class="status-dot"></span>
+            <span id="status-text">Desconectado</span>
+        </div>
+        <button id="btn-toggle">Iniciar Conversación</button>
+        <div id="log">Esperando acción...</div>
+    </div>
+
+    <script>
+        let ws, audioCtx, stream, processor;
+        let nextStartTime = 0; // El "reloj" del programador de audio
+
+        const btn = document.getElementById('btn-toggle');
+        const dot = document.getElementById('dot');
+        const statusText = document.getElementById('status-text');
+        const log = document.getElementById('log');
+
+        btn.onclick = () => {
+            if (ws) return stopSession();
+            startSession();
+        };
+
+        async function startSession() {
+            log.innerText = "Conectando al servidor...";
+            btn.disabled = true;
+
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
+            
+            ws.onmessage = async (e) => {
+                const msg = JSON.parse(e.data);
+
+                // Paso 1: Gemini está listo
+                if (msg.status === 'ready') {
+                    dot.classList.add('online');
+                    statusText.innerText = "En línea - Escuchando";
+                    log.innerText = "Habla ahora...";
+                    btn.innerText = "Finalizar";
+                    btn.disabled = false;
+                    await initMicrophone();
+                }
+
+                // Paso 2: Recibir Audio (viene en serverContent.modelTurn.parts)
+                if (msg.serverContent?.modelTurn?.parts) {
+                    msg.serverContent.modelTurn.parts.forEach(part => {
+                        if (part.inlineData?.data) {
+                            playAudioFragment(part.inlineData.data);
+                        }
+                    });
+                }
+            };
+
+            ws.onclose = () => stopSession();
+            ws.onerror = (err) => { log.innerText = "Error de conexión"; stopSession(); };
+        }
+
+        async function initMicrophone() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioCtx.createMediaStreamSource(stream);
+            
+            // ScriptProcessor es más compatible para demos rápidas
+            processor = audioCtx.createScriptProcessor(4096, 1, 1);
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                const input = e.inputBuffer.getChannelData(0);
+                const pcm16 = new Int16Array(input.length);
+                for (let i = 0; i < input.length; i++) {
+                    // Limitar y convertir a PCM 16 bits
+                    pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+                }
+                
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        realtimeInput: {
+                            mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }]
+                        }
+                    }));
+                }
+            };
+        }
+
+        function playAudioFragment(base64) {
+            const binary = atob(base64);
+            const buffer = new Int16Array(new Uint8Array([...binary].map(c => c.charCodeAt(0))).buffer);
+            
+            const sampleRate = 24000;
+            const audioBuffer = audioCtx.createBuffer(1, buffer.length, sampleRate);
+            const channel = audioBuffer.getChannelData(0);
+            
+            for (let i = 0; i < buffer.length; i++) {
+                channel[i] = buffer[i] / 32768;
+            }
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+
+            const currentTime = audioCtx.currentTime;
+
+            if (nextStartTime < currentTime) {
+                nextStartTime = currentTime + 0.1;
+            }
+
+            source.start(nextStartTime);
+            nextStartTime += audioBuffer.duration;
+        }
+
+        function stopSession() {
+            ws?.close();
+            ws = null;
+            stream?.getTracks().forEach(t => t.stop());
+            processor?.disconnect();
+            if (audioCtx) audioCtx.close();
+            
+            dot.classList.remove('online');
+            statusText.innerText = "Desconectado";
+            btn.innerText = "Iniciar Conversación";
+            btn.disabled = false;
+            log.innerText = "Sesión finalizada.";
+            nextStartTime = 0;
+        }
+    </script>
+</body>
+</html>
