@@ -13,9 +13,117 @@
         button:hover { background: #2563eb; }
         button:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
         #log { margin-top: 1.5rem; font-size: 0.85rem; color: #a1a1aa; font-family: monospace; }
+
+        /* ── Modal ── */
+        #modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.18);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        #modal-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px 28px 24px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 4px 32px rgba(0,0,0,0.10);
+            animation: modalIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+            color: #111;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes btnAppear {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        .modal-header h2 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 700; color: #111; letter-spacing: 0.01em; }
+        .modal-header p  { margin: 0; font-size: 0.82rem; color: #999; }
+        #lang-toggle {
+            background: none;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 2px 7px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #999;
+            cursor: pointer;
+            letter-spacing: 0.05em;
+            transition: color 0.15s, border-color 0.15s;
+            flex-shrink: 0;
+            width: auto;
+        }
+        #lang-toggle:hover { color: #111; border-color: #aaa; background: none; }
+        .tip-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .tip-row:last-child { border-bottom: none; }
+        .tip-icon { font-size: 1.1rem; margin-top: 1px; flex-shrink: 0; }
+        .tip-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: #111; margin-bottom: 2px; }
+        .tip-desc  { font-size: 0.83rem; color: #777; line-height: 1.45; }
+        #modal-cta { display: flex; justify-content: center; margin-top: 24px; }
+        #countdown-ring { position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+        #countdown-ring svg { position: absolute; top: 0; left: 0; transform: rotate(-90deg); }
+        #countdown-num { font-size: 0.95rem; font-weight: 700; color: #111; position: relative; z-index: 1; }
+        #accept-btn {
+            padding: 11px 0;
+            border-radius: 8px;
+            border: 1.5px solid #111;
+            background: #111;
+            color: #fff;
+            font-size: 0.88rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            transition: background 0.15s;
+            animation: btnAppear 0.3s ease both;
+            width: 100%;
+        }
+        #accept-btn:hover { background: #333; border-color: #333; }
+        #accept-btn:active { background: #000; }
     </style>
 </head>
 <body>
+
+    <!-- ── Welcome Modal ── -->
+    <div id="modal-backdrop">
+        <div id="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modal-title">Antes de comenzar</h2>
+                    <p id="modal-subtitle">Ten en cuenta las siguientes recomendaciones</p>
+                </div>
+                <button id="lang-toggle" onclick="toggleLang()">EN</button>
+            </div>
+
+            <div id="tips-list"></div>
+
+            <div id="modal-cta">
+                <div id="countdown-ring">
+                    <svg width="44" height="44">
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="#eee" stroke-width="2.5"/>
+                        <circle id="ring-arc" cx="22" cy="22" r="18" fill="none" stroke="#111" stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-dasharray="113.1"
+                            stroke-dashoffset="113.1"/>
+                    </svg>
+                    <span id="countdown-num">3</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Main App ── -->
     <div class="container">
         <h2 style="margin-top:0">Jessica</h2>
         <div style="margin-bottom: 2rem;">
@@ -28,15 +136,110 @@
 
     <script>
         let ws, audioCtx, stream, processor;
-        let nextStartTime = 0; // El "reloj" del programador de audio
+        let nextStartTime = 0;
 
         const btn = document.getElementById('btn-toggle');
         const dot = document.getElementById('dot');
         const statusText = document.getElementById('status-text');
         const log = document.getElementById('log');
 
-        btn.onclick = () => {
+        /* ── i18n ── */
+        const translations = {
+            es: {
+                title:    "Antes de comenzar",
+                subtitle: "Ten en cuenta las siguientes recomendaciones",
+                button:   "Entendido, comenzar",
+                tips: [
+                    { icon: "🎙️", title: "Permiso de micrófono",  desc: "Acepta el acceso al micrófono cuando el navegador lo solicite." },
+                    { icon: "🔇", title: "Entorno silencioso",     desc: "Usa la aplicación en un lugar sin ruido de fondo para mayor precisión." },
+                    { icon: "📶", title: "Conexión estable",       desc: "Asegúrate de tener una buena conexión a internet antes de comenzar." },
+                    { icon: "💬", title: "Habla claro y pausado",  desc: "Pronuncia con claridad y a un ritmo natural para mejores resultados." },
+                ]
+            },
+            en: {
+                title:    "Before you start",
+                subtitle: "Please keep the following recommendations in mind",
+                button:   "Got it, let's go",
+                tips: [
+                    { icon: "🎙️", title: "Microphone permission", desc: "Allow microphone access when your browser asks for it." },
+                    { icon: "🔇", title: "Quiet environment",      desc: "Use the app in a place with no background noise for best accuracy." },
+                    { icon: "📶", title: "Stable connection",      desc: "Make sure you have a good internet connection before starting." },
+                    { icon: "💬", title: "Speak clearly",          desc: "Speak at a natural pace and pronounce clearly for best results." },
+                ]
+            }
+        };
+
+        let currentLang = "es";
+
+        function renderModal() {
+            const t = translations[currentLang];
+            document.getElementById('modal-title').innerText    = t.title;
+            document.getElementById('modal-subtitle').innerText = t.subtitle;
+            document.getElementById('lang-toggle').innerText    = currentLang === "es" ? "EN" : "ES";
+
+            const list = document.getElementById('tips-list');
+            list.innerHTML = t.tips.map(tip => `
+                <div class="tip-row">
+                    <span class="tip-icon">${tip.icon}</span>
+                    <div>
+                        <div class="tip-title">${tip.title}</div>
+                        <div class="tip-desc">${tip.desc}</div>
+                    </div>
+                </div>
+            `).join('');
+
+            const acceptBtn = document.getElementById('accept-btn');
+            if (acceptBtn) acceptBtn.innerText = t.button;
+        }
+
+        function toggleLang() {
+            currentLang = currentLang === "es" ? "en" : "es";
+            renderModal();
+        }
+
+        renderModal();
+
+        /* ── Countdown ── */
+        const circumference = 2 * Math.PI * 18;
+        let secondsLeft = 3;
+        const arc   = document.getElementById('ring-arc');
+        const numEl = document.getElementById('countdown-num');
+
+        function tickCountdown() {
+            secondsLeft--;
+            const progress = secondsLeft / 3;
+            arc.setAttribute('stroke-dashoffset', circumference * (1 - progress));
+            numEl.innerText = secondsLeft;
+
+            if (secondsLeft <= 0) {
+                const cta = document.getElementById('modal-cta');
+                const t   = translations[currentLang];
+                cta.innerHTML = `<button id="accept-btn" onclick="acceptModal()">${t.button}</button>`;
+            } else {
+                setTimeout(tickCountdown, 1000);
+            }
+        }
+
+        setTimeout(tickCountdown, 1000);
+
+        async function acceptModal() {
+            await requestMic();
+            document.getElementById('modal-backdrop').style.display = 'none';
+        }
+
+        /* ── Microphone permission ── */
+        async function requestMic() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        /* ── Main session ── */
+        btn.onclick = async () => {
             if (ws) return stopSession();
+            if (!stream) await requestMic();
             startSession();
         };
 
@@ -46,11 +249,10 @@
 
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
-            
+
             ws.onmessage = async (e) => {
                 const msg = JSON.parse(e.data);
 
-                // Paso 1: Gemini está listo
                 if (msg.status === 'ready') {
                     dot.classList.add('online');
                     statusText.innerText = "En línea - Escuchando";
@@ -60,7 +262,6 @@
                     await initMicrophone();
                 }
 
-                // Paso 2: Recibir Audio (viene en serverContent.modelTurn.parts)
                 if (msg.serverContent?.modelTurn?.parts) {
                     msg.serverContent.modelTurn.parts.forEach(part => {
                         if (part.inlineData?.data) {
@@ -71,15 +272,15 @@
             };
 
             ws.onclose = () => stopSession();
-            ws.onerror = (err) => { log.innerText = "Error de conexión"; stopSession(); };
+            ws.onerror = () => { log.innerText = "Error de conexión"; stopSession(); };
         }
 
         async function initMicrophone() {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            if (!stream) await requestMic();
+
             const source = audioCtx.createMediaStreamSource(stream);
-            
-            // ScriptProcessor es más compatible para demos rápidas
             processor = audioCtx.createScriptProcessor(4096, 1, 1);
             source.connect(processor);
             processor.connect(audioCtx.destination);
@@ -88,12 +289,9 @@
                 const input = e.inputBuffer.getChannelData(0);
                 const pcm16 = new Int16Array(input.length);
                 for (let i = 0; i < input.length; i++) {
-                    // Limitar y convertir a PCM 16 bits
                     pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
                 }
-                
                 const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-                
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         realtimeInput: {
@@ -107,11 +305,10 @@
         function playAudioFragment(base64) {
             const binary = atob(base64);
             const buffer = new Int16Array(new Uint8Array([...binary].map(c => c.charCodeAt(0))).buffer);
-            
+
             const sampleRate = 24000;
             const audioBuffer = audioCtx.createBuffer(1, buffer.length, sampleRate);
             const channel = audioBuffer.getChannelData(0);
-            
             for (let i = 0; i < buffer.length; i++) {
                 channel[i] = buffer[i] / 32768;
             }
@@ -121,11 +318,7 @@
             source.connect(audioCtx.destination);
 
             const currentTime = audioCtx.currentTime;
-
-            if (nextStartTime < currentTime) {
-                nextStartTime = currentTime + 0.1;
-            }
-
+            if (nextStartTime < currentTime) nextStartTime = currentTime + 0.1;
             source.start(nextStartTime);
             nextStartTime += audioBuffer.duration;
         }
@@ -134,9 +327,10 @@
             ws?.close();
             ws = null;
             stream?.getTracks().forEach(t => t.stop());
+            stream = null;
             processor?.disconnect();
             if (audioCtx) audioCtx.close();
-            
+
             dot.classList.remove('online');
             statusText.innerText = "Desconectado";
             btn.innerText = "Iniciar Conversación";
