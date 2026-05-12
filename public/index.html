@@ -1,18 +1,58 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini 2.5 Native Audio</title>
-    <style>
-        body { font-family: 'Inter', sans-serif; background: #09090b; color: #fafafa; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .container { background: #18181b; border: 1px solid #27272a; padding: 2.5rem; border-radius: 1rem; width: 400px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #ef4444; margin-right: 10px; box-shadow: 0 0 8px #ef4444; }
-        .status-dot.online { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
-        button { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 0.6rem; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; font-size: 1rem; }
-        button:hover { background: #2563eb; }
-        button:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
-        #log { margin-top: 1.5rem; font-size: 0.85rem; color: #a1a1aa; font-family: monospace; }
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Gemini 2.5 Native Audio</title>
+        <style>
+body { font-family: 'Inter', sans-serif; background: #09090b; color: #fafafa; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+.container { background: #18181b; border: 1px solid #27272a; padding: 2.5rem; border-radius: 1rem; width: 440px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #ef4444; margin-right: 10px; box-shadow: 0 0 8px #ef4444; }
+.status-dot.online { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+button { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 0.6rem; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; font-size: 1rem; }
+button:hover { background: #2563eb; }
+button:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
+#log { margin-top: 1rem; font-size: 0.85rem; color: #71717a; font-family: monospace; }
+
+/* ── Transcript box ── */
+#transcript-wrap {
+    margin-top: 1.5rem;
+    text-align: left;
+    display: none;
+}
+        #transcript-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #52525b;
+            margin-bottom: 0.5rem;
+        }
+        #transcript {
+            background: #09090b;
+            border: 1px solid #27272a;
+            border-radius: 0.5rem;
+            padding: 0.85rem 1rem;
+            min-height: 80px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 0.88rem;
+            line-height: 1.6;
+            color: #e4e4e7;
+            white-space: pre-wrap;
+            word-break: break-word;
+            /* smooth scroll to bottom */
+            scroll-behavior: smooth;
+        }
+        /* streaming cursor blink */
+        #transcript.streaming::after {
+            content: '▋';
+            display: inline-block;
+            animation: blink 0.8s step-start infinite;
+            color: #3b82f6;
+            margin-left: 2px;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
 
         /* ── Modal ── */
         #modal-backdrop {
@@ -91,94 +131,134 @@
         }
         #accept-btn:hover { background: #333; border-color: #333; }
         #accept-btn:active { background: #000; }
-    </style>
-</head>
-<body>
+        </style>
+    </head>
+    <body>
 
-    <!-- ── Welcome Modal ── -->
-    <div id="modal-backdrop">
-        <div id="modal-card">
-            <div class="modal-header">
-                <div>
-                    <h2 id="modal-title">Antes de comenzar</h2>
-                    <p id="modal-subtitle">Ten en cuenta las siguientes recomendaciones</p>
+        <!-- ── Welcome Modal ── -->
+        <div id="modal-backdrop">
+            <div id="modal-card">
+                <div class="modal-header">
+                    <div>
+                        <h2 id="modal-title">Antes de comenzar</h2>
+                        <p id="modal-subtitle">Ten en cuenta las siguientes recomendaciones</p>
+                    </div>
+                    <button id="lang-toggle" onclick="toggleLang()">EN</button>
                 </div>
-                <button id="lang-toggle" onclick="toggleLang()">EN</button>
-            </div>
 
-            <div id="tips-list"></div>
+                <div id="tips-list"></div>
 
-            <div id="modal-cta">
-                <div id="countdown-ring">
-                    <svg width="44" height="44">
-                        <circle cx="22" cy="22" r="18" fill="none" stroke="#eee" stroke-width="2.5"/>
-                        <circle id="ring-arc" cx="22" cy="22" r="18" fill="none" stroke="#111" stroke-width="2.5"
-                            stroke-linecap="round"
-                            stroke-dasharray="113.1"
-                            stroke-dashoffset="113.1"/>
-                    </svg>
-                    <span id="countdown-num">3</span>
+                <div id="modal-cta">
+                    <div id="countdown-ring">
+                        <svg width="44" height="44">
+                            <circle cx="22" cy="22" r="18" fill="none" stroke="#eee" stroke-width="2.5"/>
+                            <circle id="ring-arc" cx="22" cy="22" r="18" fill="none" stroke="#111" stroke-width="2.5"
+                                                                                                   stroke-linecap="round"
+                                                                                                   stroke-dasharray="113.1"
+                                                                                                   stroke-dashoffset="113.1"/>
+                        </svg>
+                        <span id="countdown-num">3</span>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- ── Main App ── -->
-    <div class="container">
-        <h2 style="margin-top:0">Jessica</h2>
-        <div style="margin-bottom: 2rem;">
-            <span id="dot" class="status-dot"></span>
-            <span id="status-text">Desconectado</span>
+        <!-- ── Main App ── -->
+        <div class="container">
+            <h2 style="margin-top:0">Jessica</h2>
+            <div style="margin-bottom: 2rem;">
+                <span id="dot" class="status-dot"></span>
+                <span id="status-text">Desconectado</span>
+            </div>
+            <button id="btn-toggle">Iniciar Conversación</button>
+            <div id="log">Esperando acción...</div>
+
+            <!-- Live transcript -->
+            <div id="transcript-wrap">
+                <div id="transcript-label">Transcripción en vivo</div>
+                <div id="transcript"></div>
+            </div>
         </div>
-        <button id="btn-toggle">Iniciar Conversación</button>
-        <div id="log">Esperando acción...</div>
-    </div>
 
-    <script>
-        let ws, audioCtx, stream, processor;
-        let nextStartTime = 0;
+        <script>
+            let ws, audioCtx, stream, processor;
+            let nextStartTime = 0;
 
-        const btn = document.getElementById('btn-toggle');
-        const dot = document.getElementById('dot');
-        const statusText = document.getElementById('status-text');
-        const log = document.getElementById('log');
+            const btn          = document.getElementById('btn-toggle');
+            const dot          = document.getElementById('dot');
+            const statusText   = document.getElementById('status-text');
+            const log          = document.getElementById('log');
+            const transcriptEl = document.getElementById('transcript');
+            const transcriptWrap = document.getElementById('transcript-wrap');
 
-        /* ── i18n ── */
-        const translations = {
-            es: {
-                title:    "Antes de comenzar",
-                subtitle: "Ten en cuenta las siguientes recomendaciones",
-                button:   "Entendido, comenzar",
-                tips: [
-                    { icon: "🎙️", title: "Permiso de micrófono",  desc: "Acepta el acceso al micrófono cuando el navegador lo solicite." },
-                    { icon: "🔇", title: "Entorno silencioso",     desc: "Usa la aplicación en un lugar sin ruido de fondo para mayor precisión." },
-                    { icon: "📶", title: "Conexión estable",       desc: "Asegúrate de tener una buena conexión a internet antes de comenzar." },
-                    { icon: "💬", title: "Habla claro y pausado",  desc: "Pronuncia con claridad y a un ritmo natural para mejores resultados." },
-                ]
-            },
-            en: {
-                title:    "Before you start",
-                subtitle: "Please keep the following recommendations in mind",
-                button:   "Got it, let's go",
-                tips: [
-                    { icon: "🎙️", title: "Microphone permission", desc: "Allow microphone access when your browser asks for it." },
-                    { icon: "🔇", title: "Quiet environment",      desc: "Use the app in a place with no background noise for best accuracy." },
-                    { icon: "📶", title: "Stable connection",      desc: "Make sure you have a good internet connection before starting." },
-                    { icon: "💬", title: "Speak clearly",          desc: "Speak at a natural pace and pronounce clearly for best results." },
-                ]
+            /* ── Transcript helpers ── */
+            // Buffer to accumulate text chunks within a single model turn
+            let pendingText = '';
+            let streamingTimer = null;
+
+            function appendTranscript(text) {
+                if (!text) return;
+                pendingText += text;
+
+                // Show the transcript box if hidden
+                transcriptWrap.style.display = 'block';
+
+                // Write text and add streaming cursor
+                transcriptEl.textContent = pendingText;
+                transcriptEl.classList.add('streaming');
+
+                // Auto-scroll to bottom
+                transcriptEl.scrollTop = transcriptEl.scrollHeight;
+
+                // Remove cursor shortly after last chunk arrives
+                clearTimeout(streamingTimer);
+                streamingTimer = setTimeout(() => {
+                    transcriptEl.classList.remove('streaming');
+                }, 600);
             }
-        };
 
-        let currentLang = "es";
+            function clearTranscript() {
+                pendingText = '';
+                transcriptEl.textContent = '';
+                transcriptEl.classList.remove('streaming');
+            }
 
-        function renderModal() {
-            const t = translations[currentLang];
-            document.getElementById('modal-title').innerText    = t.title;
-            document.getElementById('modal-subtitle').innerText = t.subtitle;
-            document.getElementById('lang-toggle').innerText    = currentLang === "es" ? "EN" : "ES";
+            /* ── i18n ── */
+            const translations = {
+                es: {
+                    title:    "Antes de comenzar",
+                    subtitle: "Ten en cuenta las siguientes recomendaciones",
+                    button:   "Entendido, comenzar",
+                    tips: [
+                        { icon: "🎙️", title: "Permiso de micrófono",  desc: "Acepta el acceso al micrófono cuando el navegador lo solicite." },
+                        { icon: "🔇", title: "Entorno silencioso",     desc: "Usa la aplicación en un lugar sin ruido de fondo para mayor precisión." },
+                        { icon: "📶", title: "Conexión estable",       desc: "Asegúrate de tener una buena conexión a internet antes de comenzar." },
+                        { icon: "💬", title: "Habla claro y pausado",  desc: "Pronuncia con claridad y a un ritmo natural para mejores resultados." },
+                    ]
+                },
+                en: {
+                    title:    "Before you start",
+                    subtitle: "Please keep the following recommendations in mind",
+                    button:   "Got it, let's go",
+                    tips: [
+                        { icon: "🎙️", title: "Microphone permission", desc: "Allow microphone access when your browser asks for it." },
+                        { icon: "🔇", title: "Quiet environment",      desc: "Use the app in a place with no background noise for best accuracy." },
+                        { icon: "📶", title: "Stable connection",      desc: "Make sure you have a good internet connection before starting." },
+                        { icon: "💬", title: "Speak clearly",          desc: "Speak at a natural pace and pronounce clearly for best results." },
+                    ]
+                }
+            };
 
-            const list = document.getElementById('tips-list');
-            list.innerHTML = t.tips.map(tip => `
+            let currentLang = "es";
+
+            function renderModal() {
+                const t = translations[currentLang];
+                document.getElementById('modal-title').innerText    = t.title;
+                document.getElementById('modal-subtitle').innerText = t.subtitle;
+                document.getElementById('lang-toggle').innerText    = currentLang === "es" ? "EN" : "ES";
+
+                const list = document.getElementById('tips-list');
+                list.innerHTML = t.tips.map(tip => `
                 <div class="tip-row">
                     <span class="tip-icon">${tip.icon}</span>
                     <div>
@@ -188,156 +268,173 @@
                 </div>
             `).join('');
 
-            const acceptBtn = document.getElementById('accept-btn');
-            if (acceptBtn) acceptBtn.innerText = t.button;
-        }
+                const acceptBtn = document.getElementById('accept-btn');
+                if (acceptBtn) acceptBtn.innerText = t.button;
+            }
 
-        function toggleLang() {
-            currentLang = currentLang === "es" ? "en" : "es";
+            function toggleLang() {
+                currentLang = currentLang === "es" ? "en" : "es";
+                renderModal();
+            }
+
             renderModal();
-        }
 
-        renderModal();
+            /* ── Countdown ── */
+            const circumference = 2 * Math.PI * 18;
+            let secondsLeft = 3;
+            const arc   = document.getElementById('ring-arc');
+            const numEl = document.getElementById('countdown-num');
 
-        /* ── Countdown ── */
-        const circumference = 2 * Math.PI * 18;
-        let secondsLeft = 3;
-        const arc   = document.getElementById('ring-arc');
-        const numEl = document.getElementById('countdown-num');
+            function tickCountdown() {
+                secondsLeft--;
+                const progress = secondsLeft / 3;
+                arc.setAttribute('stroke-dashoffset', circumference * (1 - progress));
+                numEl.innerText = secondsLeft;
 
-        function tickCountdown() {
-            secondsLeft--;
-            const progress = secondsLeft / 3;
-            arc.setAttribute('stroke-dashoffset', circumference * (1 - progress));
-            numEl.innerText = secondsLeft;
-
-            if (secondsLeft <= 0) {
-                const cta = document.getElementById('modal-cta');
-                const t   = translations[currentLang];
-                cta.innerHTML = `<button id="accept-btn" onclick="acceptModal()">${t.button}</button>`;
-            } else {
-                setTimeout(tickCountdown, 1000);
-            }
-        }
-
-        setTimeout(tickCountdown, 1000);
-
-        async function acceptModal() {
-            await requestMic();
-            document.getElementById('modal-backdrop').style.display = 'none';
-        }
-
-        /* ── Microphone permission ── */
-        async function requestMic() {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        /* ── Main session ── */
-        btn.onclick = async () => {
-            if (ws) return stopSession();
-            if (!stream) await requestMic();
-            startSession();
-        };
-
-        async function startSession() {
-            log.innerText = "Conectando al servidor...";
-            btn.disabled = true;
-
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
-
-            ws.onmessage = async (e) => {
-                const msg = JSON.parse(e.data);
-
-                if (msg.status === 'ready') {
-                    dot.classList.add('online');
-                    statusText.innerText = "En línea - Escuchando";
-                    log.innerText = "Habla ahora...";
-                    btn.innerText = "Finalizar";
-                    btn.disabled = false;
-                    await initMicrophone();
+                if (secondsLeft <= 0) {
+                    const cta = document.getElementById('modal-cta');
+                    const t   = translations[currentLang];
+                    cta.innerHTML = `<button id="accept-btn" onclick="acceptModal()">${t.button}</button>`;
+                } else {
+                    setTimeout(tickCountdown, 1000);
                 }
+            }
 
-                if (msg.serverContent?.modelTurn?.parts) {
-                    msg.serverContent.modelTurn.parts.forEach(part => {
-                        if (part.inlineData?.data) {
-                            playAudioFragment(part.inlineData.data);
-                        }
-                    });
+            setTimeout(tickCountdown, 1000);
+
+            async function acceptModal() {
+                await requestMic();
+                document.getElementById('modal-backdrop').style.display = 'none';
+            }
+
+            /* ── Microphone permission ── */
+            async function requestMic() {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                } catch (err) {
+                    console.error(err);
                 }
+            }
+
+            /* ── Main session ── */
+            btn.onclick = async () => {
+                if (ws) return stopSession();
+                if (!stream) await requestMic();
+                startSession();
             };
 
-            ws.onclose = () => stopSession();
-            ws.onerror = () => { log.innerText = "Error de conexión"; stopSession(); };
-        }
+            async function startSession() {
+                log.innerText = "Conectando al servidor...";
+                btn.disabled = true;
+                clearTranscript();
 
-        async function initMicrophone() {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
 
-            if (!stream) await requestMic();
+                ws.onmessage = async (e) => {
+                    const msg = JSON.parse(e.data);
 
-            const source = audioCtx.createMediaStreamSource(stream);
-            processor = audioCtx.createScriptProcessor(4096, 1, 1);
-            source.connect(processor);
-            processor.connect(audioCtx.destination);
+                    if (msg.status === 'ready') {
+                        dot.classList.add('online');
+                        statusText.innerText = "En línea - Escuchando";
+                        log.innerText = "Habla ahora...";
+                        btn.innerText = "Finalizar";
+                        btn.disabled = false;
+                        await initMicrophone();
+                    }
 
-            processor.onaudioprocess = (e) => {
-                const input = e.inputBuffer.getChannelData(0);
-                const pcm16 = new Int16Array(input.length);
-                for (let i = 0; i < input.length; i++) {
-                    pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-                }
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        realtimeInput: {
-                            mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }]
-                        }
-                    }));
-                }
-            };
-        }
+                    // ── Handle model turn parts (audio + text) ──
+                    if (msg.serverContent?.modelTurn?.parts) {
+                        msg.serverContent.modelTurn.parts.forEach(part => {
+                            // Audio chunk
+                            if (part.inlineData?.data) {
+                                playAudioFragment(part.inlineData.data);
+                            }
+                            // Text chunk (transcript)
+                            if (part.text) {
+                                appendTranscript(part.text);
+                            }
+                        });
+                    }
 
-        function playAudioFragment(base64) {
-            const binary = atob(base64);
-            const buffer = new Int16Array(new Uint8Array([...binary].map(c => c.charCodeAt(0))).buffer);
+                    // turnComplete signals the model finished speaking this turn
+                    // We keep the text visible but remove the streaming cursor immediately
+                    if (msg.serverContent?.turnComplete) {
+                        clearTimeout(streamingTimer);
+                        transcriptEl.classList.remove('streaming');
+                    }
+                };
 
-            const sampleRate = 24000;
-            const audioBuffer = audioCtx.createBuffer(1, buffer.length, sampleRate);
-            const channel = audioBuffer.getChannelData(0);
-            for (let i = 0; i < buffer.length; i++) {
-                channel[i] = buffer[i] / 32768;
+                ws.onclose = () => stopSession();
+                ws.onerror = () => { log.innerText = "Error de conexión"; stopSession(); };
             }
 
-            const source = audioCtx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioCtx.destination);
+            async function initMicrophone() {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
 
-            const currentTime = audioCtx.currentTime;
-            if (nextStartTime < currentTime) nextStartTime = currentTime + 0.1;
-            source.start(nextStartTime);
-            nextStartTime += audioBuffer.duration;
-        }
+                if (!stream) await requestMic();
 
-        function stopSession() {
-            ws?.close();
-            ws = null;
-            stream?.getTracks().forEach(t => t.stop());
-            stream = null;
-            processor?.disconnect();
-            if (audioCtx) audioCtx.close();
+                const source = audioCtx.createMediaStreamSource(stream);
+                processor = audioCtx.createScriptProcessor(4096, 1, 1);
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
 
-            dot.classList.remove('online');
-            statusText.innerText = "Desconectado";
-            btn.innerText = "Iniciar Conversación";
-            btn.disabled = false;
-            log.innerText = "Sesión finalizada.";
-            nextStartTime = 0;
-        }
-    </script>
-</body>
+                processor.onaudioprocess = (e) => {
+                    const input = e.inputBuffer.getChannelData(0);
+                    const pcm16 = new Int16Array(input.length);
+                    for (let i = 0; i < input.length; i++) {
+                        pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
+                    }
+                    const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            realtimeInput: {
+                                mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }]
+                            }
+                        }));
+                    }
+                };
+            }
+
+            function playAudioFragment(base64) {
+                const binary = atob(base64);
+                const buffer = new Int16Array(new Uint8Array([...binary].map(c => c.charCodeAt(0))).buffer);
+
+                const sampleRate = 24000;
+                const audioBuffer = audioCtx.createBuffer(1, buffer.length, sampleRate);
+                const channel = audioBuffer.getChannelData(0);
+                for (let i = 0; i < buffer.length; i++) {
+                    channel[i] = buffer[i] / 32768;
+                }
+
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioCtx.destination);
+
+                const currentTime = audioCtx.currentTime;
+                if (nextStartTime < currentTime) nextStartTime = currentTime + 0.1;
+                source.start(nextStartTime);
+                nextStartTime += audioBuffer.duration;
+            }
+
+            function stopSession() {
+                ws?.close();
+                ws = null;
+                stream?.getTracks().forEach(t => t.stop());
+                stream = null;
+                processor?.disconnect();
+                if (audioCtx) audioCtx.close();
+
+                dot.classList.remove('online');
+                statusText.innerText = "Desconectado";
+                btn.innerText = "Iniciar Conversación";
+                btn.disabled = false;
+                log.innerText = "Sesión finalizada.";
+                nextStartTime = 0;
+
+                // Leave transcript visible after session ends so user can read it
+                transcriptEl.classList.remove('streaming');
+            }
+        </script>
+    </body>
 </html>
