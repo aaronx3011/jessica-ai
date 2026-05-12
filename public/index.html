@@ -1,440 +1,341 @@
 <!DOCTYPE html>
 <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Gemini 2.5 Native Audio</title>
-        <style>
-body { font-family: 'Inter', sans-serif; background: #09090b; color: #fafafa; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
-.container { background: #18181b; border: 1px solid #27272a; padding: 2.5rem; border-radius: 1rem; width: 440px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #ef4444; margin-right: 10px; box-shadow: 0 0 8px #ef4444; }
-.status-dot.online { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
-button { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 0.6rem; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; font-size: 1rem; }
-button:hover { background: #2563eb; }
-button:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
-#log { margin-top: 1rem; font-size: 0.85rem; color: #71717a; font-family: monospace; }
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 2.5 Native Audio</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #09090b; color: #fafafa; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+        .container { background: #18181b; border: 1px solid #27272a; padding: 2.5rem; border-radius: 1rem; width: 440px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #ef4444; margin-right: 10px; box-shadow: 0 0 8px #ef4444; }
+        .status-dot.online { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+        button { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 0.6rem; font-weight: 600; cursor: pointer; width: 100%; transition: 0.2s; font-size: 1rem; }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
+        #log { margin-top: 1rem; font-size: 0.85rem; color: #71717a; font-family: monospace; }
 
-/* ── Transcript box ── */
-#transcript-wrap {
-    margin-top: 1.5rem;
-    text-align: left;
-    display: none;
-}
-        #transcript-label {
-            font-size: 0.7rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: #52525b;
-            margin-bottom: 0.5rem;
-        }
-        #transcript {
-            background: #09090b;
-            border: 1px solid #27272a;
-            border-radius: 0.5rem;
-            padding: 0.85rem 1rem;
-            min-height: 80px;
-            max-height: 220px;
-            overflow-y: auto;
-            font-size: 0.88rem;
-            line-height: 1.6;
-            color: #e4e4e7;
-            white-space: pre-wrap;
-            word-break: break-word;
-            /* smooth scroll to bottom */
-            scroll-behavior: smooth;
-        }
-        /* streaming cursor blink */
-        #transcript.streaming::after {
-            content: '▋';
-            display: inline-block;
-            animation: blink 0.8s step-start infinite;
-            color: #3b82f6;
-            margin-left: 2px;
-        }
+        /* ── Current response ── */
+        #current-wrap { margin-top: 1.5rem; text-align: left; display: none; }
+        #current-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #3b82f6; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 6px; }
+        #current-label::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        #current-transcript { background: #09090b; border: 1px solid #3b82f6; border-radius: 0.5rem; padding: 0.85rem 1rem; min-height: 60px; font-size: 0.9rem; line-height: 1.65; color: #e4e4e7; white-space: pre-wrap; word-break: break-word; }
+        #current-transcript.streaming::after { content: '\25AE'; display: inline-block; animation: blink 0.8s step-start infinite; color: #3b82f6; margin-left: 2px; }
         @keyframes blink { 50% { opacity: 0; } }
 
-        /* ── Modal ── */
-        #modal-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.18);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
-        }
-        #modal-card {
-            background: #ffffff;
-            border-radius: 16px;
-            padding: 32px 28px 24px;
-            max-width: 400px;
-            width: 100%;
-            box-shadow: 0 4px 32px rgba(0,0,0,0.10);
-            animation: modalIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
-            color: #111;
-        }
-        @keyframes modalIn {
-            from { opacity: 0; transform: translateY(16px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes btnAppear {
-            from { opacity: 0; }
-            to   { opacity: 1; }
-        }
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 20px;
-        }
+        /* ── History ── */
+        #history-wrap { margin-top: 1.25rem; text-align: left; display: none; }
+        #history-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #52525b; margin-bottom: 0.5rem; }
+        #history-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 200px; overflow-y: auto; scroll-behavior: smooth; }
+        .history-item { background: #09090b; border: 1px solid #27272a; border-radius: 0.5rem; padding: 0.65rem 0.85rem; font-size: 0.82rem; line-height: 1.55; color: #71717a; white-space: pre-wrap; word-break: break-word; }
+
+        /* Modal */
+        #modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.18); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        #modal-card { background: #ffffff; border-radius: 16px; padding: 32px 28px 24px; max-width: 400px; width: 100%; box-shadow: 0 4px 32px rgba(0,0,0,0.10); animation: modalIn 0.35s cubic-bezier(0.34,1.56,0.64,1) both; color: #111; }
+        @keyframes modalIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes btnAppear { from { opacity: 0; } to { opacity: 1; } }
+        .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
         .modal-header h2 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 700; color: #111; letter-spacing: 0.01em; }
-        .modal-header p  { margin: 0; font-size: 0.82rem; color: #999; }
-        #lang-toggle {
-            background: none;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 2px 7px;
-            font-size: 0.72rem;
-            font-weight: 600;
-            color: #999;
-            cursor: pointer;
-            letter-spacing: 0.05em;
-            transition: color 0.15s, border-color 0.15s;
-            flex-shrink: 0;
-            width: auto;
-        }
+        .modal-header p { margin: 0; font-size: 0.82rem; color: #999; }
+        #lang-toggle { background: none; border: 1px solid #ddd; border-radius: 5px; padding: 2px 7px; font-size: 0.72rem; font-weight: 600; color: #999; cursor: pointer; letter-spacing: 0.05em; transition: color 0.15s, border-color 0.15s; flex-shrink: 0; width: auto; }
         #lang-toggle:hover { color: #111; border-color: #aaa; background: none; }
         .tip-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
         .tip-row:last-child { border-bottom: none; }
         .tip-icon { font-size: 1.1rem; margin-top: 1px; flex-shrink: 0; }
         .tip-title { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: #111; margin-bottom: 2px; }
-        .tip-desc  { font-size: 0.83rem; color: #777; line-height: 1.45; }
+        .tip-desc { font-size: 0.83rem; color: #777; line-height: 1.45; }
         #modal-cta { display: flex; justify-content: center; margin-top: 24px; }
         #countdown-ring { position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
         #countdown-ring svg { position: absolute; top: 0; left: 0; transform: rotate(-90deg); }
         #countdown-num { font-size: 0.95rem; font-weight: 700; color: #111; position: relative; z-index: 1; }
-        #accept-btn {
-            padding: 11px 0;
-            border-radius: 8px;
-            border: 1.5px solid #111;
-            background: #111;
-            color: #fff;
-            font-size: 0.88rem;
-            font-weight: 600;
-            letter-spacing: 0.04em;
-            cursor: pointer;
-            transition: background 0.15s;
-            animation: btnAppear 0.3s ease both;
-            width: 100%;
-        }
+        #accept-btn { padding: 11px 0; border-radius: 8px; border: 1.5px solid #111; background: #111; color: #fff; font-size: 0.88rem; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; transition: background 0.15s; animation: btnAppear 0.3s ease both; width: 100%; }
         #accept-btn:hover { background: #333; border-color: #333; }
         #accept-btn:active { background: #000; }
-        </style>
-    </head>
-    <body>
+    </style>
+</head>
+<body>
 
-        <!-- ── Welcome Modal ── -->
-        <div id="modal-backdrop">
-            <div id="modal-card">
-                <div class="modal-header">
-                    <div>
-                        <h2 id="modal-title">Antes de comenzar</h2>
-                        <p id="modal-subtitle">Ten en cuenta las siguientes recomendaciones</p>
-                    </div>
-                    <button id="lang-toggle" onclick="toggleLang()">EN</button>
+    <div id="modal-backdrop">
+        <div id="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modal-title">Antes de comenzar</h2>
+                    <p id="modal-subtitle">Ten en cuenta las siguientes recomendaciones</p>
                 </div>
-
-                <div id="tips-list"></div>
-
-                <div id="modal-cta">
-                    <div id="countdown-ring">
-                        <svg width="44" height="44">
-                            <circle cx="22" cy="22" r="18" fill="none" stroke="#eee" stroke-width="2.5"/>
-                            <circle id="ring-arc" cx="22" cy="22" r="18" fill="none" stroke="#111" stroke-width="2.5"
-                                                                                                   stroke-linecap="round"
-                                                                                                   stroke-dasharray="113.1"
-                                                                                                   stroke-dashoffset="113.1"/>
-                        </svg>
-                        <span id="countdown-num">3</span>
-                    </div>
+                <button id="lang-toggle" onclick="toggleLang()">EN</button>
+            </div>
+            <div id="tips-list"></div>
+            <div id="modal-cta">
+                <div id="countdown-ring">
+                    <svg width="44" height="44">
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="#eee" stroke-width="2.5"/>
+                        <circle id="ring-arc" cx="22" cy="22" r="18" fill="none" stroke="#111" stroke-width="2.5"
+                            stroke-linecap="round" stroke-dasharray="113.1" stroke-dashoffset="113.1"/>
+                    </svg>
+                    <span id="countdown-num">3</span>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- ── Main App ── -->
-        <div class="container">
-            <h2 style="margin-top:0">Jessica</h2>
-            <div style="margin-bottom: 2rem;">
-                <span id="dot" class="status-dot"></span>
-                <span id="status-text">Desconectado</span>
-            </div>
-            <button id="btn-toggle">Iniciar Conversación</button>
-            <div id="log">Esperando acción...</div>
+    <div class="container">
+        <h2 style="margin-top:0">Jessica</h2>
+        <div style="margin-bottom: 2rem;">
+            <span id="dot" class="status-dot"></span>
+            <span id="status-text">Desconectado</span>
+        </div>
+        <button id="btn-toggle">Iniciar Conversación</button>
+        <div id="log">Esperando acción...</div>
 
-            <!-- Live transcript -->
-            <div id="transcript-wrap">
-                <div id="transcript-label">Transcripción en vivo</div>
-                <div id="transcript"></div>
-            </div>
+        <!-- Current live response -->
+        <div id="current-wrap">
+            <div id="current-label">Jessica está hablando</div>
+            <div id="current-transcript"></div>
         </div>
 
-        <script>
-            let ws, audioCtx, stream, processor;
-            let nextStartTime = 0;
+        <!-- History -->
+        <div id="history-wrap">
+            <div id="history-label">Historial</div>
+            <div id="history-list"></div>
+        </div>
+    </div>
 
-            const btn          = document.getElementById('btn-toggle');
-            const dot          = document.getElementById('dot');
-            const statusText   = document.getElementById('status-text');
-            const log          = document.getElementById('log');
-            const transcriptEl = document.getElementById('transcript');
-            const transcriptWrap = document.getElementById('transcript-wrap');
+    <script>
+        var ws, audioCtx, stream, processor;
+        var nextStartTime = 0;
+        var currentText = '';
+        var streamingTimer = null;
 
-            /* ── Transcript helpers ── */
-            // Buffer to accumulate text chunks within a single model turn
-            let pendingText = '';
-            let streamingTimer = null;
+        var btn            = document.getElementById('btn-toggle');
+        var dot            = document.getElementById('dot');
+        var statusText     = document.getElementById('status-text');
+        var log            = document.getElementById('log');
+        var currentWrap    = document.getElementById('current-wrap');
+        var currentEl      = document.getElementById('current-transcript');
+        var historyWrap    = document.getElementById('history-wrap');
+        var historyList    = document.getElementById('history-list');
 
-            function appendTranscript(text) {
-                if (!text) return;
-                pendingText += text;
+        /* ── Transcript helpers ── */
+        function appendCurrent(text) {
+            if (!text) return;
+            currentText += text;
+            currentWrap.style.display = 'block';
+            currentEl.textContent = currentText;
+            currentEl.classList.add('streaming');
+        }
 
-                // Show the transcript box if hidden
-                transcriptWrap.style.display = 'block';
+        function commitCurrent() {
+            clearTimeout(streamingTimer);
+            currentEl.classList.remove('streaming');
+            if (!currentText.trim()) return;
 
-                // Write text and add streaming cursor
-                transcriptEl.textContent = pendingText;
-                transcriptEl.classList.add('streaming');
+            // Move to history
+            var item = document.createElement('div');
+            item.className = 'history-item';
+            item.textContent = currentText.trim();
+            // prepend so newest history is at top
+            historyList.insertBefore(item, historyList.firstChild);
+            historyWrap.style.display = 'block';
 
-                // Auto-scroll to bottom
-                transcriptEl.scrollTop = transcriptEl.scrollHeight;
+            // Clear current
+            currentText = '';
+            currentEl.textContent = '';
+            currentWrap.style.display = 'none';
+        }
 
-                // Remove cursor shortly after last chunk arrives
-                clearTimeout(streamingTimer);
-                streamingTimer = setTimeout(() => {
-                    transcriptEl.classList.remove('streaming');
-                }, 600);
+        function resetAll() {
+            currentText = '';
+            currentEl.textContent = '';
+            currentEl.classList.remove('streaming');
+            currentWrap.style.display = 'none';
+            historyList.innerHTML = '';
+            historyWrap.style.display = 'none';
+        }
+
+        /* ── i18n ── */
+        var translations = {
+            es: {
+                title:    "Antes de comenzar",
+                subtitle: "Ten en cuenta las siguientes recomendaciones",
+                button:   "Entendido, comenzar",
+                tips: [
+                    { icon: "🎙️", title: "Permiso de micrófono",  desc: "Acepta el acceso al micrófono cuando el navegador lo solicite." },
+                    { icon: "🔇", title: "Entorno silencioso",     desc: "Usa la aplicación en un lugar sin ruido de fondo para mayor precisión." },
+                    { icon: "📶", title: "Conexión estable",       desc: "Asegúrate de tener una buena conexión a internet antes de comenzar." },
+                    { icon: "💬", title: "Habla claro y pausado",  desc: "Pronuncia con claridad y a un ritmo natural para mejores resultados." }
+                ]
+            },
+            en: {
+                title:    "Before you start",
+                subtitle: "Please keep the following recommendations in mind",
+                button:   "Got it, let's go",
+                tips: [
+                    { icon: "🎙️", title: "Microphone permission", desc: "Allow microphone access when your browser asks for it." },
+                    { icon: "🔇", title: "Quiet environment",      desc: "Use the app in a place with no background noise for best accuracy." },
+                    { icon: "📶", title: "Stable connection",      desc: "Make sure you have a good internet connection before starting." },
+                    { icon: "💬", title: "Speak clearly",          desc: "Speak at a natural pace and pronounce clearly for best results." }
+                ]
             }
+        };
 
-            function clearTranscript() {
-                pendingText = '';
-                transcriptEl.textContent = '';
-                transcriptEl.classList.remove('streaming');
-            }
+        var currentLang = "es";
 
-            /* ── i18n ── */
-            const translations = {
-                es: {
-                    title:    "Antes de comenzar",
-                    subtitle: "Ten en cuenta las siguientes recomendaciones",
-                    button:   "Entendido, comenzar",
-                    tips: [
-                        { icon: "🎙️", title: "Permiso de micrófono",  desc: "Acepta el acceso al micrófono cuando el navegador lo solicite." },
-                        { icon: "🔇", title: "Entorno silencioso",     desc: "Usa la aplicación en un lugar sin ruido de fondo para mayor precisión." },
-                        { icon: "📶", title: "Conexión estable",       desc: "Asegúrate de tener una buena conexión a internet antes de comenzar." },
-                        { icon: "💬", title: "Habla claro y pausado",  desc: "Pronuncia con claridad y a un ritmo natural para mejores resultados." },
-                    ]
-                },
-                en: {
-                    title:    "Before you start",
-                    subtitle: "Please keep the following recommendations in mind",
-                    button:   "Got it, let's go",
-                    tips: [
-                        { icon: "🎙️", title: "Microphone permission", desc: "Allow microphone access when your browser asks for it." },
-                        { icon: "🔇", title: "Quiet environment",      desc: "Use the app in a place with no background noise for best accuracy." },
-                        { icon: "📶", title: "Stable connection",      desc: "Make sure you have a good internet connection before starting." },
-                        { icon: "💬", title: "Speak clearly",          desc: "Speak at a natural pace and pronounce clearly for best results." },
-                    ]
-                }
-            };
+        function renderModal() {
+            var t = translations[currentLang];
+            document.getElementById('modal-title').innerText    = t.title;
+            document.getElementById('modal-subtitle').innerText = t.subtitle;
+            document.getElementById('lang-toggle').innerText    = currentLang === "es" ? "EN" : "ES";
+            var list = document.getElementById('tips-list');
+            list.innerHTML = t.tips.map(function(tip) {
+                return '<div class="tip-row"><span class="tip-icon">' + tip.icon + '</span><div><div class="tip-title">' + tip.title + '</div><div class="tip-desc">' + tip.desc + '</div></div></div>';
+            }).join('');
+            var acceptBtn = document.getElementById('accept-btn');
+            if (acceptBtn) acceptBtn.innerText = t.button;
+        }
 
-            let currentLang = "es";
-
-            function renderModal() {
-                const t = translations[currentLang];
-                document.getElementById('modal-title').innerText    = t.title;
-                document.getElementById('modal-subtitle').innerText = t.subtitle;
-                document.getElementById('lang-toggle').innerText    = currentLang === "es" ? "EN" : "ES";
-
-                const list = document.getElementById('tips-list');
-                list.innerHTML = t.tips.map(tip => `
-                <div class="tip-row">
-                    <span class="tip-icon">${tip.icon}</span>
-                    <div>
-                        <div class="tip-title">${tip.title}</div>
-                        <div class="tip-desc">${tip.desc}</div>
-                    </div>
-                </div>
-            `).join('');
-
-                const acceptBtn = document.getElementById('accept-btn');
-                if (acceptBtn) acceptBtn.innerText = t.button;
-            }
-
-            function toggleLang() {
-                currentLang = currentLang === "es" ? "en" : "es";
-                renderModal();
-            }
-
+        function toggleLang() {
+            currentLang = currentLang === "es" ? "en" : "es";
             renderModal();
+        }
 
-            /* ── Countdown ── */
-            const circumference = 2 * Math.PI * 18;
-            let secondsLeft = 3;
-            const arc   = document.getElementById('ring-arc');
-            const numEl = document.getElementById('countdown-num');
+        renderModal();
 
-            function tickCountdown() {
-                secondsLeft--;
-                const progress = secondsLeft / 3;
-                arc.setAttribute('stroke-dashoffset', circumference * (1 - progress));
-                numEl.innerText = secondsLeft;
+        /* ── Countdown ── */
+        var circumference = 2 * Math.PI * 18;
+        var secondsLeft = 3;
+        var arc   = document.getElementById('ring-arc');
+        var numEl = document.getElementById('countdown-num');
 
-                if (secondsLeft <= 0) {
-                    const cta = document.getElementById('modal-cta');
-                    const t   = translations[currentLang];
-                    cta.innerHTML = `<button id="accept-btn" onclick="acceptModal()">${t.button}</button>`;
-                } else {
-                    setTimeout(tickCountdown, 1000);
+        function tickCountdown() {
+            secondsLeft--;
+            arc.setAttribute('stroke-dashoffset', circumference * (1 - secondsLeft / 3));
+            numEl.innerText = secondsLeft;
+            if (secondsLeft <= 0) {
+                var cta = document.getElementById('modal-cta');
+                var t   = translations[currentLang];
+                cta.innerHTML = '<button id="accept-btn" onclick="acceptModal()">' + t.button + '</button>';
+            } else {
+                setTimeout(tickCountdown, 1000);
+            }
+        }
+        setTimeout(tickCountdown, 1000);
+
+        async function acceptModal() {
+            await requestMic();
+            document.getElementById('modal-backdrop').style.display = 'none';
+        }
+
+        async function requestMic() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            } catch (err) { console.error(err); }
+        }
+
+        /* ── Main session ── */
+        btn.onclick = async function() {
+            if (ws) return stopSession();
+            if (!stream) await requestMic();
+            startSession();
+        };
+
+        async function startSession() {
+            log.innerText = "Conectando al servidor...";
+            btn.disabled = true;
+            resetAll();
+
+            var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(wsProtocol + '//' + window.location.host);
+
+            ws.onmessage = async function(e) {
+                var msg;
+                try { msg = JSON.parse(e.data); } catch(ex) { return; }
+
+                if (msg.status === 'ready') {
+                    dot.classList.add('online');
+                    statusText.innerText = "En línea - Escuchando";
+                    log.innerText = "Habla ahora...";
+                    btn.innerText = "Finalizar";
+                    btn.disabled = false;
+                    await initMicrophone();
+                    return;
                 }
-            }
 
-            setTimeout(tickCountdown, 1000);
-
-            async function acceptModal() {
-                await requestMic();
-                document.getElementById('modal-backdrop').style.display = 'none';
-            }
-
-            /* ── Microphone permission ── */
-            async function requestMic() {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                } catch (err) {
-                    console.error(err);
+                /* Audio chunks */
+                if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
+                    msg.serverContent.modelTurn.parts.forEach(function(part) {
+                        if (part.inlineData && part.inlineData.data) playAudioFragment(part.inlineData.data);
+                    });
                 }
-            }
 
-            /* ── Main session ── */
-            btn.onclick = async () => {
-                if (ws) return stopSession();
-                if (!stream) await requestMic();
-                startSession();
+                /* Transcription — top-level message */
+                if (msg.outputTranscription && msg.outputTranscription.text) {
+                    appendCurrent(msg.outputTranscription.text);
+                }
+                /* Transcription — nested fallback */
+                if (msg.serverContent && msg.serverContent.outputTranscription && msg.serverContent.outputTranscription.text) {
+                    appendCurrent(msg.serverContent.outputTranscription.text);
+                }
+
+                /* Turn complete: commit current to history */
+                if (msg.serverContent && msg.serverContent.turnComplete) {
+                    commitCurrent();
+                }
             };
 
-            async function startSession() {
-                log.innerText = "Conectando al servidor...";
-                btn.disabled = true;
-                clearTranscript();
+            ws.onclose = function() { stopSession(); };
+            ws.onerror = function() { log.innerText = "Error de conexión"; stopSession(); };
+        }
 
-                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
-
-                ws.onmessage = async (e) => {
-                    const msg = JSON.parse(e.data);
-
-                    if (msg.status === 'ready') {
-                        dot.classList.add('online');
-                        statusText.innerText = "En línea - Escuchando";
-                        log.innerText = "Habla ahora...";
-                        btn.innerText = "Finalizar";
-                        btn.disabled = false;
-                        await initMicrophone();
-                    }
-
-                    // ── Handle model turn parts (audio + text) ──
-                    if (msg.serverContent?.modelTurn?.parts) {
-                        msg.serverContent.modelTurn.parts.forEach(part => {
-                            // Audio chunk
-                            if (part.inlineData?.data) {
-                                playAudioFragment(part.inlineData.data);
-                            }
-                            // Text chunk (transcript)
-                            if (part.text) {
-                                appendTranscript(part.text);
-                            }
-                        });
-                    }
-
-                    // turnComplete signals the model finished speaking this turn
-                    // We keep the text visible but remove the streaming cursor immediately
-                    if (msg.serverContent?.turnComplete) {
-                        clearTimeout(streamingTimer);
-                        transcriptEl.classList.remove('streaming');
-                    }
-                };
-
-                ws.onclose = () => stopSession();
-                ws.onerror = () => { log.innerText = "Error de conexión"; stopSession(); };
-            }
-
-            async function initMicrophone() {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-
-                if (!stream) await requestMic();
-
-                const source = audioCtx.createMediaStreamSource(stream);
-                processor = audioCtx.createScriptProcessor(4096, 1, 1);
-                source.connect(processor);
-                processor.connect(audioCtx.destination);
-
-                processor.onaudioprocess = (e) => {
-                    const input = e.inputBuffer.getChannelData(0);
-                    const pcm16 = new Int16Array(input.length);
-                    for (let i = 0; i < input.length; i++) {
-                        pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
-                    }
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            realtimeInput: {
-                                mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }]
-                            }
-                        }));
-                    }
-                };
-            }
-
-            function playAudioFragment(base64) {
-                const binary = atob(base64);
-                const buffer = new Int16Array(new Uint8Array([...binary].map(c => c.charCodeAt(0))).buffer);
-
-                const sampleRate = 24000;
-                const audioBuffer = audioCtx.createBuffer(1, buffer.length, sampleRate);
-                const channel = audioBuffer.getChannelData(0);
-                for (let i = 0; i < buffer.length; i++) {
-                    channel[i] = buffer[i] / 32768;
+        async function initMicrophone() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (!stream) await requestMic();
+            var source = audioCtx.createMediaStreamSource(stream);
+            processor = audioCtx.createScriptProcessor(4096, 1, 1);
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+            processor.onaudioprocess = function(e) {
+                var input = e.inputBuffer.getChannelData(0);
+                var pcm16 = new Int16Array(input.length);
+                for (var i = 0; i < input.length; i++) {
+                    pcm16[i] = Math.max(-1, Math.min(1, input[i])) * 0x7FFF;
                 }
+                var base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(pcm16.buffer)));
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }] } }));
+                }
+            };
+        }
 
-                const source = audioCtx.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(audioCtx.destination);
+        function playAudioFragment(base64) {
+            var binary = atob(base64);
+            var buffer = new Int16Array(new Uint8Array(Array.prototype.map.call(binary, function(c) { return c.charCodeAt(0); })).buffer);
+            var sampleRate = 24000;
+            var audioBuffer = audioCtx.createBuffer(1, buffer.length, sampleRate);
+            var channel = audioBuffer.getChannelData(0);
+            for (var i = 0; i < buffer.length; i++) { channel[i] = buffer[i] / 32768; }
+            var src = audioCtx.createBufferSource();
+            src.buffer = audioBuffer;
+            src.connect(audioCtx.destination);
+            var now = audioCtx.currentTime;
+            if (nextStartTime < now) nextStartTime = now + 0.1;
+            src.start(nextStartTime);
+            nextStartTime += audioBuffer.duration;
+        }
 
-                const currentTime = audioCtx.currentTime;
-                if (nextStartTime < currentTime) nextStartTime = currentTime + 0.1;
-                source.start(nextStartTime);
-                nextStartTime += audioBuffer.duration;
-            }
-
-            function stopSession() {
-                ws?.close();
-                ws = null;
-                stream?.getTracks().forEach(t => t.stop());
-                stream = null;
-                processor?.disconnect();
-                if (audioCtx) audioCtx.close();
-
-                dot.classList.remove('online');
-                statusText.innerText = "Desconectado";
-                btn.innerText = "Iniciar Conversación";
-                btn.disabled = false;
-                log.innerText = "Sesión finalizada.";
-                nextStartTime = 0;
-
-                // Leave transcript visible after session ends so user can read it
-                transcriptEl.classList.remove('streaming');
-            }
-        </script>
-    </body>
+        function stopSession() {
+            if (ws) { ws.close(); ws = null; }
+            if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); stream = null; }
+            if (processor) processor.disconnect();
+            if (audioCtx) { audioCtx.close(); audioCtx = null; }
+            dot.classList.remove('online');
+            statusText.innerText = "Desconectado";
+            btn.innerText = "Iniciar Conversación";
+            btn.disabled = false;
+            log.innerText = "Sesión finalizada.";
+            nextStartTime = 0;
+            // commit any in-progress text on disconnect
+            commitCurrent();
+        }
+    </script>
+</body>
 </html>

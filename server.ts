@@ -56,6 +56,7 @@ wss.on('connection', async (clientWs) => {
                     generationConfig: {
                         responseModalities: ["audio"]
                     },
+                    output_audio_transcription: {},
                     tools: [
                         {
                             retrieval: {
@@ -115,15 +116,15 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
 
 
         geminiWs.on('unexpected-response', (req, res) => {
-		    let body = '';
-		        res.on('data', (chunk) => body += chunk);
-			    res.on('end', () => {
-				            console.error('🚫 Error detallado de Google:', body);
-					        });
-	});
-	
-	
-	geminiWs.on('message', (data) => {
+            let body = '';
+            res.on('data', (chunk) => body += chunk);
+            res.on('end', () => {
+                console.error('🚫 Error detallado de Google:', body);
+            });
+        });
+
+
+        geminiWs.on('message', (data) => {
             try {
                 const response = JSON.parse(data.toString());
 
@@ -163,10 +164,10 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
 
 
 
-	geminiWs.on('error', (err) => {
-		    console.error('❌ [Gemini WebSocket Error]:', err.message);
-		    });
-	    console.log(`Config: Project: ${PROJECT_ID}, Location: ${LOCATION}, RAG: ${RAG_CORPUS_ID}`);
+        geminiWs.on('error', (err) => {
+            console.error('❌ [Gemini WebSocket Error]:', err.message);
+        });
+        console.log(`Config: Project: ${PROJECT_ID}, Location: ${LOCATION}, RAG: ${RAG_CORPUS_ID}`);
 
         geminiWs.on('close', (code, reason) => {
             console.warn(`⚠️ [Gemini] Conexión cerrada (${code}): ${reason}`);
