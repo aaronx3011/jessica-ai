@@ -22,11 +22,17 @@ const auth = new GoogleAuth({
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.use((req, res) => {
+  if (req.accepts('html')) {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+});
+
 const server = app.listen(port, () => {
     console.log(`🚀 Servidor Realtime en http://localhost:${port}`);
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', async (clientWs) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
@@ -180,7 +186,7 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
         clientWs.on('close', () => geminiWs.close());
 
     } catch (authError) {
-        console.error('❌ Error de Autenticación con Google Cloud:', authError.message);
+        console.error('❌ Error de Autenticación con Google Cloud:', authError instanceof Error ? authError.message : authError);
         clientWs.close();
     }
 });
