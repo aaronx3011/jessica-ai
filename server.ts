@@ -190,7 +190,9 @@ wss.on('connection', async (clientWs) => {
                 if (response.serverContent) {
                     const sc = response.serverContent;
                     if (sc.groundingMetadata) {
-                        console.log('[RAG] Grounding metadata recibido:', JSON.stringify(sc.groundingMetadata, null, 2));
+                        const ragData = JSON.stringify(sc.groundingMetadata, null, 2);
+                        const safePayload = ragData.substring(0, 2500);
+                        console.log('[RAG] Grounding metadata recibido:', safePayload);
                     }
                     if (sc.modelTurn?.parts) {
                         for (const part of sc.modelTurn.parts) {
