@@ -65,13 +65,14 @@ connectDB()
     const wss = new WebSocketServer({ noServer: true });
 
     server.on('upgrade', (req, socket, head) => {
-      if (req.url !== '/ws') {
+      const reqUrl = new URL(req.url!, `http://${req.headers.host}`);
+      if (reqUrl.pathname !== '/ws') {
         socket.destroy();
         return;
       }
 
       sessionMiddleware(req as any, {} as any, () => {
-        const query = new URL(req.url!, `http://${req.headers.host}`).searchParams;
+        const query = reqUrl.searchParams;
         const token = query.get('token');
         let userId = (req as any).session?.userId;
 
