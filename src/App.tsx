@@ -56,28 +56,59 @@ export default function App() {
   const scrollRef = useRef<HTMLParagraphElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const wsClosedByError = useRef(false);
+  const tokenRef = useRef<string | null>(null);
+
+  function getToken(): string | null {
+    return tokenRef.current || localStorage.getItem('jwt_token');
+  }
+
+  function setToken(token: string) {
+    tokenRef.current = token;
+    localStorage.setItem('jwt_token', token);
+  }
+
+  function clearToken() {
+    tokenRef.current = null;
+    localStorage.removeItem('jwt_token');
+  }
+
+  function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+    const token = getToken();
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const showWelcome = params.get('welcome') === '1';
+    const urlToken = params.get('token');
 
-    fetch('/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((userData) => {
-        if (userData) {
-          setUser(userData);
+    if (urlToken) {
+      setToken(urlToken);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
 
-          if (showWelcome && userData.isNew) {
-            setShowHelpModal(true);
-          } else {
+    const storedToken = getToken();
+
+    if (storedToken) {
+      authFetch('/auth/me')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((userData) => {
+          if (userData) {
+            setUser(userData);
+            if (userData.isNew) {
+              setShowHelpModal(true);
+            }
             setState('chat');
+          } else {
+            clearToken();
           }
-
-          if (showWelcome) {
-            window.history.replaceState({}, '', window.location.pathname);
-          }
-        }
-      });
+        });
+    }
   }, []);
 
   useEffect(() => {
@@ -99,7 +130,7 @@ export default function App() {
     setWsError('');
     wsClosedByError.current = false;
 
-    const url = getWebSocketUrl();
+    const url = getWebSocketUrl(getToken());
     const ws = connect(url, {
       onReady: () => {
         setWsStatus('ready');
@@ -354,6 +385,7 @@ export default function App() {
 
   const handleLogout = async () => {
     await fetch('/auth/logout', { method: 'POST' });
+    clearToken();
     setUser(null);
     setMessages([]);
     setState('landing');
@@ -460,7 +492,7 @@ export default function App() {
 
                 <button
                   id="btn-start"
-                  onClick={() => setState('chat')}
+                  onClick={() => setState('login')}
                   className="mt-6 md:mt-8 w-full sm:w-auto px-12 py-5 bg-cyan-500 text-black rounded-xl font-mold text-2xl tracking-wider flex items-center justify-center gap-3 transition-all hover:bg-cyan-400 hover:scale-[1.05] shadow-[0_0_30px_rgba(6,182,212,0.3)] active:scale-95"
                 >
                   {t.landing.start}
@@ -471,7 +503,7 @@ export default function App() {
           </motion.div>
         )}
 
-        {state !== 'landing' && state !== 'chat' && (
+        {state === 'login' && (
           <motion.div
             key="login"
             initial={{ opacity: 0, y: 20 }}
@@ -506,7 +538,7 @@ export default function App() {
                 onClick={() => setState('landing')}
                 className="w-full mt-8 text-slate-500 text-xs font-bold uppercase tracking-widest hover:text-cyan-400 transition-colors"
               >
-                {t.landing.start}
+                {t.login.back}
               </button>
             </div>
           </motion.div>

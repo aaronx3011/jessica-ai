@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
+import jwt from 'jsonwebtoken';
 import { User } from './models/User';
 
 const router = Router();
@@ -89,8 +90,27 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       });
     });
 
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      console.error('[Auth] JWT_SECRET not configured');
+      res.status(500).send('Server configuration error');
+      return;
+    }
+
+    const token = jwt.sign(
+      {
+        userId: user._id.toString(),
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+        isNew: Math.abs(user.createdAt.getTime() - user.lastLogin.getTime()) < 1000,
+      },
+      secret,
+      { expiresIn: '7d' }
+    );
+
     const frontendUrl = process.env.FRONTEND_URL || '/';
-    const redirectUrl = `${frontendUrl}?welcome=1`;
+    const redirectUrl = `${frontendUrl}?token=${token}`;
 
     console.log(`[Auth] User ${user.email} authenticated — redirecting to ${redirectUrl}`);
     res.redirect(redirectUrl);
@@ -100,8 +120,22 @@ router.get('/google/callback', async (req: Request, res: Response) => {
   }
 });
 
+function extractUserId(req: Request): string | undefined {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
+      return decoded.userId;
+    } catch {
+      return undefined;
+    }
+  }
+  return req.session.userId;
+}
+
 router.get('/me', async (req: Request, res: Response) => {
-  const userId = req.session.userId;
+  const userId = extractUserId(req);
 
   if (!userId) {
     res.status(401).json({ error: 'Not authenticated' });

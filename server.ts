@@ -5,6 +5,7 @@ import MongoStore from 'connect-mongo';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
 import { GoogleAuth } from 'google-auth-library';
 import { connectDB } from './src/db';
 import authRouter from './src/auth';
@@ -70,7 +71,20 @@ connectDB()
       }
 
       sessionMiddleware(req as any, {} as any, () => {
-        if (!(req as any).session?.userId) {
+        const query = new URL(req.url!, `http://${req.headers.host}`).searchParams;
+        const token = query.get('token');
+        let userId = (req as any).session?.userId;
+
+        if (!userId && token) {
+          try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
+            userId = decoded.userId;
+          } catch {
+            // Invalid JWT
+          }
+        }
+
+        if (!userId) {
           console.warn('[WS] Unauthenticated WebSocket connection rejected');
           socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
           socket.destroy();

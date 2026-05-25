@@ -5,7 +5,7 @@ export interface Message {
   timestamp: Date;
 }
 
-export type AppState = 'landing' | 'chat';
+export type AppState = 'landing' | 'login' | 'chat';
 
 export interface User {
   _id: string;
