@@ -7,7 +7,6 @@ import {
   Mic,
   MicOff,
   User,
-  Lock,
   ChevronRight,
   ArrowRight,
   VolumeX,
@@ -45,8 +44,7 @@ export default function App() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showTranscription, setShowTranscription] = useState(false);
   const [lang, setLang] = useState<'es' | 'en'>('es');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+
   const [wsStatus, setWsStatus] = useState<'disconnected' | 'connecting' | 'ready'>('disconnected');
   const [wsError, setWsError] = useState('');
 
@@ -58,6 +56,29 @@ export default function App() {
   const scrollRef = useRef<HTMLParagraphElement>(null);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
   const wsClosedByError = useRef(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const showWelcome = params.get('welcome') === '1';
+
+    fetch('/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((userData) => {
+        if (userData) {
+          setUser(userData);
+
+          if (showWelcome && userData.isNew) {
+            setShowHelpModal(true);
+          } else {
+            setState('chat');
+          }
+
+          if (showWelcome) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        }
+      });
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -307,13 +328,7 @@ export default function App() {
 
   const t = translations[lang];
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (email && password) {
-      setUser({ email });
-      setShowHelpModal(true);
-    }
-  };
+
 
   const handleStartFromModal = async () => {
     setShowHelpModal(false);
@@ -322,7 +337,7 @@ export default function App() {
     } catch {
       console.warn('[Mic] Permiso denegado — el micrófono no estará disponible');
     }
-    if (user && state === 'login') {
+    if (user && state !== 'chat') {
       setState('chat');
       if (messages.length === 0) {
         setMessages([{
@@ -337,7 +352,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await fetch('/auth/logout', { method: 'POST' });
     setUser(null);
     setMessages([]);
     setState('landing');
@@ -444,7 +460,7 @@ export default function App() {
 
                 <button
                   id="btn-start"
-                  onClick={() => setState('login')}
+                  onClick={() => setState('chat')}
                   className="mt-6 md:mt-8 w-full sm:w-auto px-12 py-5 bg-cyan-500 text-black rounded-xl font-mold text-2xl tracking-wider flex items-center justify-center gap-3 transition-all hover:bg-cyan-400 hover:scale-[1.05] shadow-[0_0_30px_rgba(6,182,212,0.3)] active:scale-95"
                 >
                   {t.landing.start}
@@ -455,7 +471,7 @@ export default function App() {
           </motion.div>
         )}
 
-        {state === 'login' && (
+        {state !== 'landing' && state !== 'chat' && (
           <motion.div
             key="login"
             initial={{ opacity: 0, y: 20 }}
@@ -469,7 +485,7 @@ export default function App() {
               <div className="text-center mb-8 md:mb-10 relative">
                 <div className="flex flex-col items-center mb-6">
                   <img
-                    src="/src/assets/images/regenerated_image_1778642997714.png"
+                    src={jessicaLogo}
                     alt="Jessica AI Logo"
                     className="max-h-12 w-auto brightness-0 invert opacity-80"
                   />
@@ -478,51 +494,19 @@ export default function App() {
                 <h2 className="text-2xl md:text-3xl font-display font-bold text-white tracking-tight">{t.login.title}</h2>
               </div>
 
-              <form onSubmit={handleLogin} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-cyan-400/70 uppercase tracking-widest ml-1">{t.login.email}</label>
-                  <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="usuario@equipo.com"
-                      className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none transition-all text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-cyan-400/70 uppercase tracking-widest ml-1">{t.login.password}</label>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none transition-all text-white"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-4 bg-white text-black rounded-2xl font-bold flex items-center justify-center gap-3 transition-all hover:bg-slate-200 active:scale-[0.98] mt-4 shadow-xl"
-                >
-                  {t.login.button}
-                  <ArrowRight size={20} />
-                </button>
-              </form>
+              <button
+                onClick={() => (window.location.href = '/auth/google')}
+                className="w-full py-4 bg-white text-black rounded-2xl font-bold flex items-center justify-center gap-3 transition-all hover:bg-slate-200 active:scale-[0.98] mt-4 shadow-xl"
+              >
+                {t.login.button}
+                <ArrowRight size={20} />
+              </button>
 
               <button
                 onClick={() => setState('landing')}
                 className="w-full mt-8 text-slate-500 text-xs font-bold uppercase tracking-widest hover:text-cyan-400 transition-colors"
               >
-                {t.login.back}
+                {t.landing.start}
               </button>
             </div>
           </motion.div>
@@ -536,14 +520,27 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="flex-1 flex flex-col h-screen max-w-6xl mx-auto w-full bg-dark-bg relative overflow-hidden"
           >
-            <nav className="h-20 md:h-24 flex items-center justify-between px-6 md:px-12 relative z-20 bg-dark-bg/40 backdrop-blur-xl border-b border-white/5">
-              <div className="flex-1 flex items-center gap-4">
-                <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center font-bold text-black text-xl shadow-[0_0_15px_rgba(6,182,212,0.3)]">J</div>
-                <div className="hidden sm:block">
-                  <h3 className="font-bold text-lg text-white tracking-widest font-mold uppercase">{t.chat.nav.voice}</h3>
-                  <p className="text-[9px] text-cyan-400/60 font-mono tracking-[0.3em] uppercase italic">{t.chat.nav.engine}</p>
+              <nav className="h-20 md:h-24 flex items-center justify-between px-6 md:px-12 relative z-20 bg-dark-bg/40 backdrop-blur-xl border-b border-white/5">
+                <div className="flex-1 flex items-center gap-4">
+                  {user?.picture ? (
+                    <img
+                      src={user.picture}
+                      alt={user.name}
+                      className="w-10 h-10 rounded-xl object-cover ring-2 ring-cyan-500/30"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center font-bold text-black text-xl shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+                      {user?.name?.charAt(0) || 'J'}
+                    </div>
+                  )}
+                  <div className="hidden sm:block">
+                    <h3 className="font-bold text-lg text-white tracking-widest font-mold uppercase">{t.chat.nav.voice}</h3>
+                    <p className="text-[9px] text-cyan-400/60 font-mono tracking-[0.3em] uppercase italic">
+                      {user?.name || t.chat.nav.engine}
+                    </p>
+                  </div>
                 </div>
-              </div>
 
               <div className="hidden lg:flex flex-1 justify-center items-center">
                 <div className="flex flex-col items-center">

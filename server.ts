@@ -1,9 +1,13 @@
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleAuth } from 'google-auth-library';
+import { connectDB } from './src/db';
+import authRouter from './src/auth';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +24,29 @@ const auth = new GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/cloud-platform']
 });
 
+app.set('trust proxy', 1);
+
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET!,
+  name: 'connect.sid',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    touchAfter: 24 * 3600,
+  }),
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+});
+
+app.use(sessionMiddleware);
+
+app.use('/auth', authRouter);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use((req, res) => {
@@ -28,11 +55,33 @@ app.use((req, res) => {
   }
 });
 
-const server = app.listen(port, () => {
-    console.log(`🚀 Servidor Realtime en http://localhost:${port}`);
-});
+connectDB()
+  .then(() => {
+    const server = app.listen(port, () => {
+      console.log(`🚀 Servidor Realtime en http://localhost:${port}`);
+    });
 
-const wss = new WebSocketServer({ server, path: '/ws' });
+    const wss = new WebSocketServer({ noServer: true });
+
+    server.on('upgrade', (req, socket, head) => {
+      if (req.url !== '/ws') {
+        socket.destroy();
+        return;
+      }
+
+      sessionMiddleware(req as any, {} as any, () => {
+        if (!(req as any).session?.userId) {
+          console.warn('[WS] Unauthenticated WebSocket connection rejected');
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit('connection', ws, req);
+        });
+      });
+    });
 
 wss.on('connection', async (clientWs) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
@@ -189,4 +238,9 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
         console.error('❌ Error de Autenticación con Google Cloud:', authError instanceof Error ? authError.message : authError);
         clientWs.close();
     }
+  });
+})
+.catch((err) => {
+  console.error('❌ [Server] Failed to start:', err);
+  process.exit(1);
 });
