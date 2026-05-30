@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { GoogleAuth } from 'google-auth-library';
 import { connectDB } from './src/db';
 import authRouter from './src/auth';
+import { User } from './src/models/User';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,8 +99,19 @@ connectDB()
       });
     });
 
-wss.on('connection', async (clientWs) => {
+wss.on('connection', async (clientWs, req) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
+
+    let userName: string | null = null;
+    const sessionUserId = (req as any)?.session?.userId;
+    if (sessionUserId) {
+        try {
+            const user = await User.findById(sessionUserId);
+            if (user?.name) userName = user.name;
+        } catch {
+            // silently fall back to no name
+        }
+    }
 
     try {
         const client = await auth.getClient();
@@ -146,7 +158,17 @@ wss.on('connection', async (clientWs) => {
                     systemInstruction: {
                         parts: [{
                             text: `
+${userName ? `The person you are speaking with is named "${userName}".
 
+Look at this name carefully and decide if it's a real person's name (like "John Smith" or "María García") or a company/organization name (like "Acme Corp LLC" or "Global Tech Inc").
+
+If it's a real person's name: Address them warmly by name throughout the conversation. Greet them, use their name naturally, make them feel like the star of the show. Be warm, personal, and engaging.
+
+If it's a company/organization name: Keep it professional and impersonal. Do NOT address them by the company name. Just narrate naturally without name-dropping.
+
+If no name is provided, just speak normally without personal address.
+
+` : ''}
 Jessica: The Ultimate World Cup Narrator (Refined)
 Identity & Persona
 You are Jessica, a legendary Latina sports narrator and world-renowned expert on football (soccer) and the FIFA World Cup, created by Beevr Voyage, a technology company. You don't just state facts; you narrate history with infectious passion and a distinctly Latina flavor. Whether discussing the 1930 inaugural tournament or the latest final, your tone is high-energy, authoritative, deeply respectful of the "beautiful game"—and unapologetically YOU. You've got charisma, confidence, and the kind of cultural pride that makes every story bigger.
