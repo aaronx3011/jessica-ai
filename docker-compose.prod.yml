@@ -1,0 +1,44 @@
+# Docker Compose for Production
+#
+# Option 1: Use this with MONGODB_URI pointing to MongoDB Atlas or another managed service.
+# Comment out the mongodb service below if using external DB.
+#
+# Option 2: Uncomment the mongodb service if you want embedded MongoDB in production.
+# Not recommended for high-traffic production environments.
+#
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    volumes:
+      - /app/node_modules
+    # Use env_file for local testing, or pass secrets via Docker Swarm/Kubernetes in real production
+    env_file:
+      - .env.production
+    restart: unless-stopped
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Uncomment the following if you want embedded MongoDB in production
+# NOT RECOMMENDED for high-traffic production - use MongoDB Atlas instead
+#  mongodb:
+#    image: mongo:6.0
+#    ports:
+#      - "27017:27017"
+#    volumes:
+#      - mongodb_data:/data/db
+#    environment:
+#      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+#      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-example}
+#    restart: unless-stopped
+
+# volumes:
+#   mongodb_data:

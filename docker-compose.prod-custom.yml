@@ -1,0 +1,40 @@
+# Docker Compose for Production (Custom - Matches Your Current Setup)
+#
+# This file matches your existing production docker run command.
+# It uses:
+# - Custom network: root_default
+# - External env_file path: ~/.secrets/jessica-ai/.env
+# - GCP service account volume mount
+#
+# To build and start in one command:
+#   docker-compose -f docker-compose.prod-custom.yml up -d --build
+#
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jessica-server
+    networks:
+      - root_default
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Override GOOGLE_APPLICATION_CREDENTIALS path for container
+      GOOGLE_APPLICATION_CREDENTIALS: /app/secrets/gcp-service-account.json
+    volumes:
+      - /etc/secrets/gcp-service-account.json:/app/secrets/gcp-service-account.json:ro
+    env_file:
+      - ~/.secrets/jessica-ai/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  root_default:
+    external: true

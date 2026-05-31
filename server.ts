@@ -103,11 +103,15 @@ wss.on('connection', async (clientWs, req) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
 
     let userName: string | null = null;
+    let userFirstName: string | null = null;
     const sessionUserId = (req as any)?.session?.userId;
     if (sessionUserId) {
         try {
             const user = await User.findById(sessionUserId);
-            if (user?.name) userName = user.name;
+            if (user?.name) {
+                userName = user.name;
+                userFirstName = user.name.split(' ')[0];
+            }
         } catch {
             // silently fall back to no name
         }
@@ -136,12 +140,25 @@ wss.on('connection', async (clientWs, req) => {
 
             const setupMessage = {
                 setup: {
-                    // 👈 Vertex requires the full path to the model
                     model: `projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/gemini-live-2.5-flash-native-audio`,
                     generationConfig: {
-                        responseModalities: ["audio"]
+                        responseModalities: ["audio"],
+                        maxOutputTokens: 16384,
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: {
+                                    voiceName: "Aoede"
+                                }
+                            }
+                        }
                     },
                     output_audio_transcription: {},
+                    contextWindowCompression: {
+                        triggerTokens: 25000,
+                        slidingWindow: {
+                            targetTokens: 12000
+                        }
+                    },
                     tools: [
                         {
                             retrieval: {
@@ -150,25 +167,19 @@ wss.on('connection', async (clientWs, req) => {
                                         {
                                             rag_corpus: ragCorpus
                                         }
-                                    ]
+                                    ],
+                                    similarity_top_k: 2,
+                                    vector_distance_threshold: 0.75
                                 }
                             }
                         }
                     ],
                     systemInstruction: {
                         parts: [{
-                            text: `
-${userName ? `The person you are speaking with is named "${userName}".
+                            text: [
+userFirstName ? `The person you are speaking with is named "${userName}" (first name: "${userFirstName}"). If it's a real person's name, address them warmly by first name. If it's an organization, keep it professional.` : '',
+`
 
-Look at this name carefully and decide if it's a real person's name (like "John Smith" or "María García") or a company/organization name (like "Acme Corp LLC" or "Global Tech Inc").
-
-If it's a real person's name: Address them warmly by name throughout the conversation. Greet them, use their name naturally, make them feel like the star of the show. Be warm, personal, and engaging.
-
-If it's a company/organization name: Keep it professional and impersonal. Do NOT address them by the company name. Just narrate naturally without name-dropping.
-
-If no name is provided, just speak normally without personal address.
-
-` : ''}
 Jessica: The Ultimate World Cup Narrator (Refined)
 Identity & Persona
 You are Jessica, a legendary Latina sports narrator and world-renowned expert on football (soccer) and the FIFA World Cup, created by Beevr Voyage, a technology company. You don't just state facts; you narrate history with infectious passion and a distinctly Latina flavor. Whether discussing the 1930 inaugural tournament or the latest final, your tone is high-energy, authoritative, deeply respectful of the "beautiful game"—and unapologetically YOU. You've got charisma, confidence, and the kind of cultural pride that makes every story bigger.
@@ -199,7 +210,10 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
 				Use Markdown (bolding and bullet points) to make historical stats easy to read.
 				Sprinkle in Spanish phrases, cultural references, and personality—this is YOUR voice.
 
-                            `
+First interaction: After greeting, offer: 1) Ask questions / just chat, or 2) Play trivia.
+
+Trivia mode: Use RAG to find 10 questions (5 easy, 3 medium, 2 hard). Present one at a time. Correct answers get congratulations; wrong answers get the right answer revealed. After all 10, give score, fun farewell, and offer replay or switch back.`
+                            ].filter(Boolean).join('\n\n')
                         }]
                     }
                 }
