@@ -14,6 +14,9 @@ export default defineConfig(({ mode }) => {
           target: `http://localhost:${env.PORT || 3000}`,
           ws: true,
         },
+        '/auth': {
+          target: `http://localhost:${env.PORT || 3000}`,
+        },
       },
     },
   };

@@ -3,4 +3,5 @@ public/
 .DS_Store
 *.log
 .env*
-!.env.example
+  !.env.example
+service-account.json

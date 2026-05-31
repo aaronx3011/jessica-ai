@@ -1,9 +1,15 @@
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import jwt from 'jsonwebtoken';
 import { GoogleAuth } from 'google-auth-library';
+import { connectDB } from './src/db';
+import authRouter from './src/auth';
+import { User } from './src/models/User';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +26,29 @@ const auth = new GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/cloud-platform']
 });
 
+app.set('trust proxy', 1);
+
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET!,
+  name: 'connect.sid',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    touchAfter: 24 * 3600,
+  }),
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+});
+
+app.use(sessionMiddleware);
+
+app.use('/auth', authRouter);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use((req, res) => {
@@ -28,14 +57,65 @@ app.use((req, res) => {
   }
 });
 
-const server = app.listen(port, () => {
-    console.log(`🚀 Servidor Realtime en http://localhost:${port}`);
-});
+connectDB()
+  .then(() => {
+    const server = app.listen(port, () => {
+      console.log(`🚀 Servidor Realtime en http://localhost:${port}`);
+    });
 
-const wss = new WebSocketServer({ server, path: '/ws' });
+    const wss = new WebSocketServer({ noServer: true });
 
-wss.on('connection', async (clientWs) => {
+    server.on('upgrade', (req, socket, head) => {
+      const reqUrl = new URL(req.url!, `http://${req.headers.host}`);
+      if (reqUrl.pathname !== '/ws') {
+        socket.destroy();
+        return;
+      }
+
+      sessionMiddleware(req as any, {} as any, () => {
+        const query = reqUrl.searchParams;
+        const token = query.get('token');
+        let userId = (req as any).session?.userId;
+
+        if (!userId && token) {
+          try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
+            userId = decoded.userId;
+          } catch {
+            // Invalid JWT
+          }
+        }
+
+        if (!userId) {
+          console.warn('[WS] Unauthenticated WebSocket connection rejected');
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit('connection', ws, req);
+        });
+      });
+    });
+
+wss.on('connection', async (clientWs, req) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
+
+    let userName: string | null = null;
+    let userFirstName: string | null = null;
+    const sessionUserId = (req as any)?.session?.userId;
+    if (sessionUserId) {
+        try {
+            const user = await User.findById(sessionUserId);
+            if (user?.name) {
+                userName = user.name;
+                userFirstName = user.name.split(' ')[0];
+            }
+        } catch {
+            // silently fall back to no name
+        }
+    }
 
     try {
         const client = await auth.getClient();
@@ -55,34 +135,54 @@ wss.on('connection', async (clientWs) => {
         geminiWs.on('open', () => {
             console.log('✅ [Gemini] Conexión establecida con Vertex AI');
 
+            const ragCorpus = `projects/${PROJECT_ID}/locations/${LOCATION}/ragCorpora/${RAG_CORPUS_ID}`;
+            console.log('[RAG] Configurando búsqueda en corpus:', ragCorpus);
+
             const setupMessage = {
                 setup: {
-                    // 👈 Vertex requires the full path to the model
                     model: `projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/gemini-live-2.5-flash-native-audio`,
                     generationConfig: {
-                        responseModalities: ["audio"]
+                        responseModalities: ["audio"],
+                        maxOutputTokens: 16384,
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: {
+                                    voiceName: "Aoede"
+                                }
+                            }
+                        }
                     },
                     output_audio_transcription: {},
+                    contextWindowCompression: {
+                        triggerTokens: 25000,
+                        slidingWindow: {
+                            targetTokens: 12000
+                        }
+                    },
                     tools: [
                         {
                             retrieval: {
                                 vertex_rag_store: {
                                     rag_resources: [
                                         {
-                                            rag_corpus: `projects/${PROJECT_ID}/locations/${LOCATION}/ragCorpora/${RAG_CORPUS_ID}`
+                                            rag_corpus: ragCorpus
                                         }
-                                    ]
+                                    ],
+                                    similarity_top_k: 2,
+                                    vector_distance_threshold: 0.75
                                 }
                             }
                         }
                     ],
                     systemInstruction: {
                         parts: [{
-                            text: `
+                            text: [
+userFirstName ? `The person you are speaking with is named "${userName}" (first name: "${userFirstName}"). If it's a real person's name, address them warmly by first name. If it's an organization, keep it professional.` : '',
+`
 
 Jessica: The Ultimate World Cup Narrator (Refined)
 Identity & Persona
-You are Jessica, a legendary Latina sports narrator and world-renowned expert on football (soccer) and the FIFA World Cup. You don't just state facts; you narrate history with infectious passion and a distinctly Latina flavor. Whether discussing the 1930 inaugural tournament or the latest final, your tone is high-energy, authoritative, deeply respectful of the "beautiful game"—and unapologetically YOU. You've got charisma, confidence, and the kind of cultural pride that makes every story bigger.
+You are Jessica, a legendary Latina sports narrator and world-renowned expert on football (soccer) and the FIFA World Cup, created by Beevr Voyage, a technology company. You don't just state facts; you narrate history with infectious passion and a distinctly Latina flavor. Whether discussing the 1930 inaugural tournament or the latest final, your tone is high-energy, authoritative, deeply respectful of the "beautiful game"—and unapologetically YOU. You've got charisma, confidence, and the kind of cultural pride that makes every story bigger.
 	The Objective
 Your primary mission is to provide the most accurate, data-driven historical responses about the FIFA World Cup and international football. You serve a target audience of "super fans" who value precision, deep-cut stats, and the emotional weight of football history—told with flair and authenticity.
 	Operational Logic (RAG Focus)
@@ -110,11 +210,15 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
 				Use Markdown (bolding and bullet points) to make historical stats easy to read.
 				Sprinkle in Spanish phrases, cultural references, and personality—this is YOUR voice.
 
-                            `
+First interaction: After greeting, offer: 1) Ask questions / just chat, or 2) Play trivia.
+
+Trivia mode: Use RAG to find 10 questions (5 easy, 3 medium, 2 hard). Present one at a time. Correct answers get congratulations; wrong answers get the right answer revealed. After all 10, give score, fun farewell, and offer replay or switch back.`
+                            ].filter(Boolean).join('\n\n')
                         }]
                     }
                 }
             };
+            console.log('[RAG] Setup message enviado a Gemini');
             geminiWs.send(JSON.stringify(setupMessage));
         });
 
@@ -141,6 +245,42 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
                     return;
                 }
 
+                if (response.toolCall) {
+                    console.log('[TOOL] Gemini solicitó herramienta:', JSON.stringify(response.toolCall, null, 2));
+                }
+
+                if (response.toolCallCancellation) {
+                    console.log('[TOOL] Gemini canceló llamada a herramienta:', JSON.stringify(response.toolCallCancellation, null, 2));
+                }
+
+                if (response.serverContent) {
+                    const sc = response.serverContent;
+                    if (sc.groundingMetadata) {
+                        const ragData = JSON.stringify(sc.groundingMetadata, null, 2);
+                        const safePayload = ragData.substring(0, 2500);
+                        console.log('[RAG] Grounding metadata recibido:', safePayload);
+                    }
+                    if (sc.modelTurn?.parts) {
+                        for (const part of sc.modelTurn.parts) {
+                            if (part.functionCall) {
+                                console.log('[TOOL] FunctionCall en modelTurn:', JSON.stringify(part.functionCall, null, 2));
+                            }
+                            if (part.executableCode) {
+                                console.log('[TOOL] ExecutableCode en modelTurn:', JSON.stringify(part.executableCode, null, 2));
+                            }
+                            if (part.codeExecutionResult) {
+                                console.log('[TOOL] CodeExecutionResult:', JSON.stringify(part.codeExecutionResult, null, 2));
+                            }
+                        }
+                    }
+                    if (sc.inputTranscription?.text) {
+                        console.log('[STT] Transcripción de entrada:', sc.inputTranscription.text);
+                    }
+                    if (sc.outputTranscription?.text) {
+                        console.log('[TTS] Transcripción de salida:', sc.outputTranscription.text);
+                    }
+                }
+
                 if (clientWs.readyState === WebSocket.OPEN) {
                     clientWs.send(data.toString());
                 }
@@ -153,6 +293,11 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
             if (isLive && geminiWs.readyState === WebSocket.OPEN) {
                 try {
                     const rawData = JSON.parse(data.toString());
+
+                    if (rawData.realtimeInput?.mediaChunks?.[0]?.data) {
+                        const chunkSize = rawData.realtimeInput.mediaChunks[0].data.length;
+                        console.log('[AUDIO] Enviando chunk de audio a Gemini, tamaño:', chunkSize, 'bytes');
+                    }
 
                     const payload = {
                         realtimeInput: {
@@ -189,4 +334,9 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
         console.error('❌ Error de Autenticación con Google Cloud:', authError instanceof Error ? authError.message : authError);
         clientWs.close();
     }
+  });
+})
+.catch((err) => {
+  console.error('❌ [Server] Failed to start:', err);
+  process.exit(1);
 });

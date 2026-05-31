@@ -7,9 +7,11 @@ export type WebSocketCallbacks = {
   onError: (error: string) => void
 }
 
-export function getWebSocketUrl(): string {
+export function getWebSocketUrl(token?: string | null): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws`
+  const url = `${protocol}//${window.location.host}/ws`
+  if (token) return `${url}?token=${encodeURIComponent(token)}`
+  return url
 }
 
 export function connect(url: string, callbacks: WebSocketCallbacks): WebSocket {
