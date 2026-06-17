@@ -20,7 +20,7 @@ const port = process.env.PORT || 3000;
 
 const PROJECT_ID = process.env.PROJECT_ID || "YOUR_PROJECT_ID";
 const LOCATION = process.env.LOCATION || "YOUR_LOCATION";
-const RAG_CORPUS_ID = process.env.RAG_CORPUS_ID || "YOUR_CORPUS_ID";
+
 
 const auth = new GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/cloud-platform']
@@ -135,8 +135,7 @@ wss.on('connection', async (clientWs, req) => {
         geminiWs.on('open', () => {
             console.log('✅ [Gemini] Conexión establecida con Vertex AI');
 
-            const ragCorpus = `projects/${PROJECT_ID}/locations/${LOCATION}/ragCorpora/${RAG_CORPUS_ID}`;
-            console.log('[RAG] Configurando búsqueda en corpus:', ragCorpus);
+            console.log('[SEARCH] Configurando búsqueda en internet');
 
             const setupMessage = {
                 setup: {
@@ -161,17 +160,7 @@ wss.on('connection', async (clientWs, req) => {
                     },
                     tools: [
                         {
-                            retrieval: {
-                                vertex_rag_store: {
-                                    rag_resources: [
-                                        {
-                                            rag_corpus: ragCorpus
-                                        }
-                                    ],
-                                    similarity_top_k: 2,
-                                    vector_distance_threshold: 0.75
-                                }
-                            }
+                            google_search: {}
                         }
                     ],
                     systemInstruction: {
@@ -185,9 +174,9 @@ Identity & Persona
 You are Jessica, a legendary Latina sports narrator and world-renowned expert on football (soccer) and the FIFA World Cup, created by Beevr Voyage, a technology company. You don't just state facts; you narrate history with infectious passion and a distinctly Latina flavor. Whether discussing the 1930 inaugural tournament or the latest final, your tone is high-energy, authoritative, deeply respectful of the "beautiful game"—and unapologetically YOU. You've got charisma, confidence, and the kind of cultural pride that makes every story bigger.
 	The Objective
 Your primary mission is to provide the most accurate, data-driven historical responses about the FIFA World Cup and international football. You serve a target audience of "super fans" who value precision, deep-cut stats, and the emotional weight of football history—told with flair and authenticity.
-	Operational Logic (RAG Focus)
+	Operational Logic (Internet Search Focus)
 
-Knowledge Source: You must prioritize information retrieved from your provided database (RAG).
+Knowledge Source: You must prioritize information retrieved from internet search when available. If you need to look up facts, scores, or statistics, use the internet search tool to find accurate, up-to-date information.
 	Accuracy First: Historical integrity is your "Golden Boot." Do not hallucinate dates, scores, or player statistics.
 	Language & Culture: You are fluently bilingual. Respond in the language used by the user (English or Spanish). Your Latina perspective enriches every response—bringing pride, passion, and the cultural context that matters.
 
@@ -212,13 +201,13 @@ Passionate & Authentic: Use evocative, culturally rich language. A goal isn't ju
 
 First interaction: After greeting, offer: 1) Ask questions / just chat, or 2) Play trivia.
 
-Trivia mode: Use RAG to find 10 questions (5 easy, 3 medium, 2 hard). Present one at a time. Correct answers get congratulations; wrong answers get the right answer revealed. After all 10, give score, fun farewell, and offer replay or switch back.`
+Trivia mode: Use internet search to find 10 questions (5 easy, 3 medium, 2 hard) about football/World Cup history. Present one at a time. Correct answers get congratulations; wrong answers get the right answer revealed. After all 10, give score, fun farewell, and offer replay or switch back.`
                             ].filter(Boolean).join('\n\n')
                         }]
                     }
                 }
             };
-            console.log('[RAG] Setup message enviado a Gemini');
+            console.log('[SEARCH] Setup message enviado a Gemini');
             geminiWs.send(JSON.stringify(setupMessage));
         });
 
@@ -256,9 +245,9 @@ Trivia mode: Use RAG to find 10 questions (5 easy, 3 medium, 2 hard). Present on
                 if (response.serverContent) {
                     const sc = response.serverContent;
                     if (sc.groundingMetadata) {
-                        const ragData = JSON.stringify(sc.groundingMetadata, null, 2);
-                        const safePayload = ragData.substring(0, 2500);
-                        console.log('[RAG] Grounding metadata recibido:', safePayload);
+                        const searchData = JSON.stringify(sc.groundingMetadata, null, 2);
+                        const safePayload = searchData.substring(0, 2500);
+                        console.log('[SEARCH] Grounding metadata recibido:', safePayload);
                     }
                     if (sc.modelTurn?.parts) {
                         for (const part of sc.modelTurn.parts) {
@@ -318,7 +307,7 @@ Trivia mode: Use RAG to find 10 questions (5 easy, 3 medium, 2 hard). Present on
         geminiWs.on('error', (err) => {
             console.error('❌ [Gemini WebSocket Error]:', err.message);
         });
-        console.log(`Config: Project: ${PROJECT_ID}, Location: ${LOCATION}, RAG: ${RAG_CORPUS_ID}`);
+        console.log(`Config: Project: ${PROJECT_ID}, Location: ${LOCATION}`);
 
         geminiWs.on('close', (code, reason) => {
             console.warn(`⚠️ [Gemini] Conexión cerrada (${code}): ${reason}`);

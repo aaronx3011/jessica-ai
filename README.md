@@ -30,7 +30,7 @@ Create a `.env` file in the root directory and add your Google Cloud configurati
 PORT=3000
 PROJECT_ID=your-google-cloud-project-id
 LOCATION=your-gcp-region (e.g., us-central1)
-RAG_CORPUS_ID=your-vertex-ai-rag-corpus-id
+# Internet search via Google Search Grounding (no additional config needed)
 ```
 
 ## 🛠️ Local Development
