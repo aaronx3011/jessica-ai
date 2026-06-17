@@ -70,7 +70,7 @@ All `.env` variables can be passed as Docker environment variables:
 - `SESSION_SECRET`
 - `JWT_SECRET`
 - `MONGODB_URI` (production Atlas)
-- `PROJECT_ID`, `LOCATION`, `RAG_CORPUS_ID`
+- `PROJECT_ID`, `LOCATION`
 
 ## Switching Environments
 

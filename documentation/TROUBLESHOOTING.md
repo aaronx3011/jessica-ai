@@ -177,7 +177,7 @@ Make sure your `.env` file has:
 - ✅ `FRONTEND_URL=http://localhost:3000`
 - ✅ `SESSION_SECRET` (any random string)
 - ✅ `JWT_SECRET` (any random string)
-- ✅ `PROJECT_ID`, `LOCATION`, `RAG_CORPUS_ID` (from Google Cloud)
+- ✅ `PROJECT_ID`, `LOCATION` (from Google Cloud)
 
 ## Still Stuck?
 
