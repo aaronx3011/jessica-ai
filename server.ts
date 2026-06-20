@@ -102,20 +102,8 @@ connectDB()
 wss.on('connection', async (clientWs, req) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
 
-    let userName: string | null = null;
-    let userFirstName: string | null = null;
-    const sessionUserId = (req as any)?.session?.userId;
-    if (sessionUserId) {
-        try {
-            const user = await User.findById(sessionUserId);
-            if (user?.name) {
-                userName = user.name;
-                userFirstName = user.name.split(' ')[0];
-            }
-        } catch {
-            // silently fall back to no name
-        }
-    }
+    let userName = "Sergio Saladrigas";
+    let userFirstName = "Sergio";
 
     try {
         const client = await auth.getClient();
