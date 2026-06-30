@@ -113,6 +113,16 @@ export async function createPlaybackContext(): Promise<AudioContext> {
   return ctx
 }
 
+const activeSources = new Set<AudioBufferSourceNode>()
+
+export function stopPlayback(): void {
+  for (const src of activeSources) {
+    try { src.stop() } catch {}
+    try { src.disconnect() } catch {}
+  }
+  activeSources.clear()
+}
+
 export function playAudioFragment(
   audioCtx: AudioContext,
   base64: string,
@@ -136,6 +146,8 @@ export function playAudioFragment(
     const src = audioCtx.createBufferSource()
     src.buffer = audioBuffer
     src.connect(audioCtx.destination)
+    activeSources.add(src)
+    src.onended = () => activeSources.delete(src)
 
     const now = audioCtx.currentTime
     if (nextStartTime.current < now) {

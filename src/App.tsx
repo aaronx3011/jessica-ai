@@ -6,16 +6,14 @@ import {
     FileAudio,
     Mic,
     MicOff,
-    ChevronRight,
-    ArrowRight,
     VolumeX,
     Wifi,
     X
 } from 'lucide-react';
-import { Message, AppState, User as UserType } from './types';
+import { Message, AppState } from './types';
 import { AudioWave } from './components/AudioWave';
-import jessicaPortrait from './assets/images/regenerated_image_1778468032658.png'
-import jessicaLogo from './assets/images/regenerated_image_1778642997714.png'
+import veraPortrait from './assets/images/vera-portrait.png'
+import veraLogo from './assets/images/regenerated_image_1778642997714.png'
 import {
     connect,
     sendAudioChunk,
@@ -26,18 +24,18 @@ import {
     stopMicCapture,
     createPlaybackContext,
     playAudioFragment,
+    stopPlayback,
     AudioCaptureHandle,
 } from './services/audioService';
 
-const JESSICA_FULL = jessicaPortrait;
-const JESSICA_FACE = jessicaPortrait;
+const VERA_FULL = veraPortrait;
+const VERA_FACE = veraPortrait;
 
 export default function App() {
-    const [state, setState] = useState<AppState>('landing');
-    const [user, setUser] = useState<UserType | null>(null);
+    const [state, setState] = useState<AppState>('chat');
     const [messages, setMessages] = useState<Message[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
-    const [isJessicaSpeaking, setIsJessicaSpeaking] = useState(false);
+    const [isVeraSpeaking, setIsVeraSpeaking] = useState(false);
     const [currentTranscript, setCurrentTranscript] = useState('');
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [showTranscription, setShowTranscription] = useState(false);
@@ -53,75 +51,10 @@ export default function App() {
     const playbackCtxRef = useRef<AudioContext | null>(null);
     const nextStartTimeRef = useRef<number>(0);
     const transcriptRef = useRef('');
+    const isVeraSpeakingRef = useRef(false);
     const scrollRef = useRef<HTMLParagraphElement>(null);
     const transcriptScrollRef = useRef<HTMLDivElement>(null);
     const wsClosedByError = useRef(false);
-    const tokenRef = useRef<string | null>(null);
-
-    function getToken(): string | null {
-        return tokenRef.current || localStorage.getItem('jwt_token');
-    }
-
-    function setToken(token: string) {
-        tokenRef.current = token;
-        localStorage.setItem('jwt_token', token);
-    }
-
-    function clearToken() {
-        tokenRef.current = null;
-        localStorage.removeItem('jwt_token');
-    }
-
-    function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-        const token = getToken();
-        return fetch(url, {
-            ...options,
-            headers: {
-                ...options.headers,
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-        });
-    }
-
-    useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const urlToken = params.get('token');
-
-        if (urlToken) {
-            setToken(urlToken);
-            window.history.replaceState({}, '', window.location.pathname);
-        }
-
-        const storedToken = getToken();
-
-        if (storedToken) {
-            authFetch('/auth/me')
-                .then((r) => (r.ok ? r.json() : null))
-                .then((userData) => {
-                    if (userData) {
-                        setUser(userData);
-                        if (userData.isNew) {
-                            setShowHelpModal(true);
-                        }
-                        setState('chat');
-                    } else {
-                        clearToken();
-                    }
-                });
-        }
-    }, []);
-
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages, isJessicaSpeaking, currentTranscript]);
-
-    useEffect(() => {
-        if (transcriptScrollRef.current) {
-            transcriptScrollRef.current.scrollTop = transcriptScrollRef.current.scrollHeight;
-        }
-    }, [messages, currentTranscript]);
 
     useEffect(() => {
         if (state !== 'chat') return;
@@ -130,7 +63,7 @@ export default function App() {
         setWsError('');
         wsClosedByError.current = false;
 
-        const url = getWebSocketUrl(getToken());
+        const url = getWebSocketUrl();
         const ws = connect(url, {
             onReady: () => {
                 setWsStatus('ready');
@@ -138,7 +71,8 @@ export default function App() {
             onTranscript: (text) => {
                 transcriptRef.current += text;
                 setCurrentTranscript(transcriptRef.current);
-                setIsJessicaSpeaking(true);
+                setIsVeraSpeaking(true);
+                isVeraSpeakingRef.current = true;
             },
             onAudioChunk: (base64) => {
                 if (playbackCtxRef.current) {
@@ -157,7 +91,8 @@ export default function App() {
                 }
                 transcriptRef.current = '';
                 setCurrentTranscript('');
-                setIsJessicaSpeaking(false);
+                setIsVeraSpeaking(false);
+                isVeraSpeakingRef.current = false;
             },
             onClose: () => {
                 if (wsClosedByError.current) {
@@ -191,13 +126,36 @@ export default function App() {
                 playbackCtxRef.current = null;
             }
             setIsStreaming(false);
-            setIsJessicaSpeaking(false);
+            setIsVeraSpeaking(false);
             setCurrentTranscript('');
             transcriptRef.current = '';
             nextStartTimeRef.current = 0;
             setWsStatus('disconnected');
         };
     }, [state]);
+
+    useEffect(() => {
+        setMessages([{
+            id: '1',
+            role: 'assistant',
+            content: lang === 'es'
+                ? '¡Hola! Soy Vera, co-presentadora de Quinto Vector. ¿Sobre qué tema te gustaría hablar hoy?'
+                : 'Hello! I am Vera, co-host of Quinto Vector. What topic would you like to discuss today?',
+            timestamp: new Date()
+        }]);
+    }, []);
+
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [messages, isVeraSpeaking, currentTranscript]);
+
+    useEffect(() => {
+        if (transcriptScrollRef.current) {
+            transcriptScrollRef.current.scrollTop = transcriptScrollRef.current.scrollHeight;
+        }
+    }, [messages, currentTranscript]);
 
     const toggleMic = async () => {
         if (isStreaming) {
@@ -211,6 +169,15 @@ export default function App() {
         }
 
         if (!wsRef.current || wsStatus !== 'ready') return;
+
+        if (isVeraSpeakingRef.current) {
+            stopPlayback();
+            nextStartTimeRef.current = 0;
+            if (playbackCtxRef.current) {
+                playbackCtxRef.current.close();
+                playbackCtxRef.current = null;
+            }
+        }
 
         if (!playbackCtxRef.current) {
             playbackCtxRef.current = await createPlaybackContext();
@@ -246,34 +213,14 @@ export default function App() {
             speak: "Habla claro y pausado",
             speakDesc: "Pronuncia con claridad y a un ritmo natural para mejores resultados.",
             button: "Entendido, comenzar",
-            landing: {
-                badge: "Tu Asistente Deportiva v.2.0",
-                greeting: "Hola, soy",
-                name: "Jessica.",
-                description: "Tengo acceso a toda la información del mundo del fútbol en tiempo real. Análisis táctico, estadísticas globales y asesoramiento deportivo a tu disposición.",
-                howTitle: "¿Cómo interactuar?",
-                how1: "Pregunta por resultados de ligas europeas",
-                how2: "Consulta análisis de rendimiento de jugadores",
-                how3: "Pide consejos de entrenamiento táctico",
-                start: "COMENZAR AHORA"
-            },
-            login: {
-                title: "Acceso Jessica AI",
-                subtitle: "Introduce tus credenciales de vestuario",
-                email: "Email",
-                password: "Contraseña",
-                button: "ACCEDER",
-                back: "Volver al campo de juego"
-            },
             chat: {
                 nav: {
-                    voice: "JESSICA VOICE",
+                    voice: "VERA VOICE",
                     engine: "Neural Engine Activo",
                     help: "ASISTENCIA",
-                    logout: "SALIR"
                 },
                 status: {
-                    speaking: "Jessica está hablando...",
+                    speaking: "Vera está hablando...",
                     listening: "Escuchando...",
                     waiting: "Esperando voz...",
                     connecting: "Conectando..."
@@ -291,7 +238,7 @@ export default function App() {
                     connecting: "CONECTANDO..."
                 },
                 footer: {
-                    rights: "© 2026 JESSICA SPORTS",
+                    rights: "© 2026 QUINTO VECTOR",
                     version: "VOICE ENGINE v1.2 ★",
                     ready: "MICRÓFONO LISTO"
                 }
@@ -309,34 +256,14 @@ export default function App() {
             speak: "Speak clearly and slowly",
             speakDesc: "Speak clearly and at a natural pace for better results.",
             button: "Understood, start",
-            landing: {
-                badge: "Your Sports Assistant v.2.0",
-                greeting: "Hello, I am",
-                name: "Jessica.",
-                description: "I have access to all the information in the football world in real time. Tactical analysis, global statistics, and sports coaching at your disposal.",
-                howTitle: "How to interact?",
-                how1: "Ask for European league results",
-                how2: "Consult player performance analysis",
-                how3: "Ask for tactical training advice",
-                start: "START NOW"
-            },
-            login: {
-                title: "Jessica AI Access",
-                subtitle: "Enter your locker room credentials",
-                email: "Email",
-                password: "Password",
-                button: "ACCESS",
-                back: "Back to the field"
-            },
             chat: {
                 nav: {
-                    voice: "JESSICA VOICE",
+                    voice: "VERA VOICE",
                     engine: "Neural Engine Active",
                     help: "ASSISTANCE",
-                    logout: "EXIT"
                 },
                 status: {
-                    speaking: "Jessica is speaking...",
+                    speaking: "Vera is speaking...",
                     listening: "Listening...",
                     waiting: "Waiting for voice...",
                     connecting: "Connecting..."
@@ -354,7 +281,7 @@ export default function App() {
                     connecting: "CONNECTING..."
                 },
                 footer: {
-                    rights: "© 2026 JESSICA SPORTS",
+                    rights: "© 2026 QUINTO VECTOR",
                     version: "VOICE ENGINE v1.2 ★",
                     ready: "MICROPHONE READY"
                 }
@@ -365,40 +292,9 @@ export default function App() {
     const t = translations[lang];
 
 
-
-    const handleStartFromModal = async () => {
-        setShowHelpModal(false);
-        try {
-            await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        } catch {
-            console.warn('[Mic] Permiso denegado — el micrófono no estará disponible');
-        }
-        if (user && state !== 'chat') {
-            setState('chat');
-            if (messages.length === 0) {
-                setMessages([{
-                    id: '1',
-                    role: 'assistant',
-                    content: lang === 'es'
-                        ? '¡Hola! Soy Jessica, tu asistente personal en el mundo del fútbol. ¿En qué puedo ayudarte hoy?'
-                        : 'Hello! I am Jessica, your personal football assistant. How can I help you today?',
-                    timestamp: new Date()
-                }]);
-            }
-        }
-    };
-
-    const handleLogout = async () => {
-        await fetch('/auth/logout', { method: 'POST' });
-        clearToken();
-        setUser(null);
-        setMessages([]);
-        setState('landing');
-    };
-
     const getStatusText = () => {
         if (wsStatus === 'connecting') return t.chat.status.connecting;
-        if (isJessicaSpeaking) return t.chat.status.speaking;
+        if (isVeraSpeaking) return t.chat.status.speaking;
         if (isStreaming) return t.chat.status.listening;
         return t.chat.status.waiting;
     };
@@ -422,133 +318,6 @@ export default function App() {
             </div>
 
             <AnimatePresence mode="wait">
-                {state === 'landing' && (
-                    <motion.div
-                        key="landing"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="flex-1 flex flex-col relative z-10 w-full"
-                    >
-                        <nav className="h-20 md:h-28 flex items-center justify-center relative z-20 w-full">
-                            <div className="flex flex-col items-center group">
-                                <img
-                                    src={jessicaLogo}
-                                    alt="Jessica AI Logo"
-                                    className="max-h-12 md:max-h-16 w-auto brightness-0 invert opacity-60 group-hover:opacity-100 transition-all duration-700 cursor-pointer"
-                                />
-                                <span className="text-[8px] font-black text-slate-600 tracking-[0.6em] uppercase mt-2 leading-none">POWERED</span>
-                            </div>
-                        </nav>
-
-                        <div className="flex-1 flex flex-col md:flex-row items-center justify-center p-6 gap-12 max-w-6xl mx-auto w-full">
-                            <div className="flex-1 space-y-8 text-center md:text-left py-10 md:py-0">
-                                <div className="space-y-4">
-                                    <p className="text-cyan-400 font-mono text-[10px] md:text-xs tracking-widest uppercase">{t.landing.badge}</p>
-                                    <h1 className="text-6xl sm:text-7xl md:text-9xl font-normal italic leading-[0.9] font-mold text-white uppercase tracking-tight">
-                                        {t.landing.greeting} <br />
-                                        <span className="text-cyan-500">{t.landing.name}</span>
-                                    </h1>
-                                </div>
-                                <p className="text-lg md:text-xl text-slate-400 leading-relaxed max-w-lg mx-auto md:mx-0">
-                                    {t.landing.description}
-                                </p>
-
-                                <div className="glass-panel p-5 md:p-6 rounded-3xl border-white/5 space-y-4 max-w-md mx-auto md:mx-0">
-                                    <h3 className="text-xs font-bold text-white mb-2 uppercase tracking-wider">{t.landing.howTitle}</h3>
-                                    <ul className="text-xs text-slate-400 space-y-3">
-                                        <li className="flex items-center gap-3">
-                                            <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                                            {t.landing.how1}
-                                        </li>
-                                        <li className="flex items-center gap-3">
-                                            <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                                            {t.landing.how2}
-                                        </li>
-                                        <li className="flex items-center gap-3">
-                                            <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
-                                            {t.landing.how3}
-                                        </li>
-                                    </ul>
-                                </div>
-                            </div>
-
-                            <div className="flex-1 relative block flex flex-col items-center">
-                                <motion.div
-                                    initial={{ opacity: 0, x: 20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ duration: 1 }}
-                                    className="relative cursor-pointer group"
-                                >
-                                    <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full blur opacity-25 group-hover:opacity-50 transition-opacity"></div>
-                                    <div className="relative rounded-[4rem] overflow-hidden border-2 border-white/10 shadow-2xl aspect-[3/4] max-w-sm mx-auto">
-                                        <img
-                                            src={JESSICA_FULL}
-                                            alt="Jessica Full"
-                                            className="w-full h-full object-cover object-top grayscale-[20%] hover:grayscale-0 transition-all duration-700"
-                                            referrerPolicy="no-referrer"
-                                        />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-dark-bg/80 via-transparent to-transparent" />
-                                        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[80%]">
-                                            <AudioWave isPlaying={false} />
-                                        </div>
-                                    </div>
-                                </motion.div>
-
-                                <button
-                                    id="btn-start"
-                                    onClick={() => setState('login')}
-                                    className="mt-6 md:mt-8 w-full sm:w-auto px-12 py-5 bg-cyan-500 text-black rounded-xl font-mold text-2xl tracking-wider flex items-center justify-center gap-3 transition-all hover:bg-cyan-400 hover:scale-[1.05] shadow-[0_0_30px_rgba(6,182,212,0.3)] active:scale-95"
-                                >
-                                    {t.landing.start}
-                                    <ChevronRight size={24} />
-                                </button>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-
-                {state === 'login' && (
-                    <motion.div
-                        key="login"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="flex-1 flex items-center justify-center p-4 md:p-6 relative z-10"
-                    >
-                        <div className="w-full max-w-md glass-panel p-8 md:p-10 rounded-[2rem] md:rounded-[2.5rem] shadow-2xl relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 blur-3xl -mr-16 -mt-16" />
-
-                            <div className="text-center mb-8 md:mb-10 relative">
-                                <div className="flex flex-col items-center mb-6">
-                                    <img
-                                        src={jessicaLogo}
-                                        alt="Jessica AI Logo"
-                                        className="max-h-12 w-auto brightness-0 invert opacity-80"
-                                    />
-                                    <span className="text-[8px] font-black text-slate-500 tracking-[0.5em] uppercase mt-2 leading-none">POWERED</span>
-                                </div>
-                                <h2 className="text-2xl md:text-3xl font-display font-bold text-white tracking-tight">{t.login.title}</h2>
-                            </div>
-
-                            <button
-                                onClick={() => (window.location.href = '/auth/google')}
-                                className="w-full py-4 bg-white text-black rounded-2xl font-bold flex items-center justify-center gap-3 transition-all hover:bg-slate-200 active:scale-[0.98] mt-4 shadow-xl"
-                            >
-                                {t.login.button}
-                                <ArrowRight size={20} />
-                            </button>
-
-                            <button
-                                onClick={() => setState('landing')}
-                                className="w-full mt-8 text-slate-500 text-xs font-bold uppercase tracking-widest hover:text-cyan-400 transition-colors"
-                            >
-                                {t.login.back}
-                            </button>
-                        </div>
-                    </motion.div>
-                )}
-
                 {state === 'chat' && (
                     <motion.div
                         key="chat"
@@ -559,22 +328,13 @@ export default function App() {
                     >
                         <nav className="h-20 md:h-24 flex items-center justify-between px-6 md:px-12 relative z-20 bg-dark-bg/40 backdrop-blur-xl border-b border-white/5">
                             <div className="flex-1 flex items-center gap-4">
-                                {user?.picture ? (
-                                    <img
-                                        src={user.picture}
-                                        alt={user.name}
-                                        className="w-10 h-10 rounded-xl object-cover ring-2 ring-cyan-500/30"
-                                        referrerPolicy="no-referrer"
-                                    />
-                                ) : (
-                                    <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center font-bold text-black text-xl shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-                                        {user?.name?.charAt(0) || 'J'}
-                                    </div>
-                                )}
+                                <div className="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center font-bold text-black text-xl shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+                                    J
+                                </div>
                                 <div className="hidden sm:block">
                                     <h3 className="font-bold text-lg text-white tracking-widest font-mold uppercase">{t.chat.nav.voice}</h3>
                                     <p className="text-[9px] text-cyan-400/60 font-mono tracking-[0.3em] uppercase italic">
-                                        {user?.name || t.chat.nav.engine}
+                                        {t.chat.nav.engine}
                                     </p>
                                 </div>
                             </div>
@@ -582,8 +342,8 @@ export default function App() {
                             <div className="hidden lg:flex flex-1 justify-center items-center">
                                 <div className="flex flex-col items-center group">
                                     <img
-                                        src={jessicaLogo}
-                                        alt="Jessica AI Logo"
+                                        src={veraLogo}
+                                        alt="Vera AI Logo"
                                         className="max-h-10 w-auto brightness-0 invert opacity-60 group-hover:opacity-100 transition-all duration-500 cursor-pointer"
                                     />
                                     <span className="text-[7px] font-black text-slate-600 tracking-[0.4em] uppercase mt-1 leading-none">POWERED</span>
@@ -598,19 +358,13 @@ export default function App() {
                                     <HelpCircle size={14} />
                                     {t.chat.nav.help}
                                 </button>
-                                <button
-                                    onClick={handleLogout}
-                                    className="bg-white/5 px-6 py-2.5 rounded-full text-[10px] font-bold text-white hover:bg-white/10 transition-all border border-white/10"
-                                >
-                                    {t.chat.nav.logout}
-                                </button>
                             </div>
                         </nav>
 
                         <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 relative">
                             <div className="relative group mb-12">
                                 <motion.div
-                                    animate={isJessicaSpeaking ? { scale: [1, 1.1, 1], opacity: [0.1, 0.3, 0.1] } : {}}
+                                    animate={isVeraSpeaking ? { scale: [1, 1.1, 1], opacity: [0.1, 0.3, 0.1] } : {}}
                                     transition={{ duration: 2, repeat: Infinity }}
                                     className="absolute -inset-10 bg-cyan-500 rounded-full blur-3xl opacity-10"
                                 />
@@ -621,20 +375,20 @@ export default function App() {
                                     className="relative w-64 h-64 md:w-80 md:h-80 rounded-full overflow-hidden border-4 border-white/10 shadow-[0_0_50px_rgba(34,211,238,0.2)]"
                                 >
                                     <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none rotate-12">
-                                        <img src={jessicaLogo} alt="" className="w-48 brightness-0 invert" />
+                                        <img src={veraLogo} alt="" className="w-48 brightness-0 invert" />
                                     </div>
 
                                     <img
-                                        src={JESSICA_FACE}
-                                        alt="Jessica AI"
-                                        className={`w-full h-full object-cover object-top transition-all duration-1000 ${isJessicaSpeaking ? 'scale-110 brightness-110' : 'grayscale-[30%]'}`}
+                                        src={VERA_FACE}
+                                        alt="Vera AI"
+                                        className={`w-full h-full object-cover object-top transition-all duration-1000 ${isVeraSpeaking ? 'scale-110 brightness-110' : 'grayscale-[30%]'}`}
                                         referrerPolicy="no-referrer"
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/20 via-transparent to-transparent pointer-events-none" />
                                 </motion.div>
 
                                 <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 glass-panel rounded-full border border-white/10 flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${isJessicaSpeaking || isStreaming ? 'bg-cyan-400 animate-pulse' : 'bg-slate-600'}`} />
+                                    <div className={`w-2 h-2 rounded-full ${isVeraSpeaking || isStreaming ? 'bg-cyan-400 animate-pulse' : 'bg-slate-600'}`} />
                                     <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
                                         {getStatusText()}
                                     </span>
@@ -671,7 +425,7 @@ export default function App() {
                             </div>
 
                             <div className="w-full max-w-2xl mb-12">
-                                <AudioWave isPlaying={isStreaming || isJessicaSpeaking} />
+                                <AudioWave isPlaying={isStreaming || isVeraSpeaking} />
                             </div>
 
                             <AnimatePresence>
@@ -831,7 +585,10 @@ export default function App() {
                                 </div>
 
                                 <button
-                                    onClick={handleStartFromModal}
+                                    onClick={() => {
+                                        setShowHelpModal(false);
+                                        navigator.mediaDevices.getUserMedia({ audio: true, video: false }).catch(() => {});
+                                    }}
                                     className="w-full mt-10 py-5 bg-[#111111] text-white rounded-2xl font-bold font-mold text-xl tracking-wider transition-all hover:bg-black active:scale-95 shadow-xl"
                                 >
                                     {t.button}
@@ -882,7 +639,7 @@ export default function App() {
                                     <div key={m.id} className="space-y-1">
                                         <div className="flex items-center gap-2">
                                             <span className={`text-[9px] font-bold uppercase tracking-widest ${m.role === 'user' ? 'text-cyan-400' : 'text-slate-400'}`}>
-                                                {m.role === 'user' ? (user?.email?.split('@')[0] || t.chat.transcription.user) : 'Jessica AI'}
+                                                {m.role === 'user' ? t.chat.transcription.user : 'Vera AI'}
                                             </span>
                                             <span className="text-[8px] text-slate-600 font-mono">
                                                 {m.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -896,7 +653,7 @@ export default function App() {
                                 {currentTranscript && (
                                     <div className="space-y-1">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Jessica AI</span>
+                                            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Vera AI</span>
                                             <span className="text-[8px] text-slate-600 font-mono">Transcribiendo...</span>
                                         </div>
                                         <p className="text-sm leading-relaxed text-slate-400 font-serif italic">
