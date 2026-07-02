@@ -10,7 +10,9 @@ const CHUNK_SIZE = 4096
 export async function startMicCapture(
   onChunk: (base64: string) => void,
   onNoiseDetected?: (noisy: boolean) => void,
-  onLevel?: (rms: number) => void
+  onLevel?: (rms: number) => void,
+  onVoiceStart?: () => void,
+  voiceStartMinRms?: number
 ): Promise<AudioCaptureHandle> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { noiseSuppression: true, echoCancellation: true },
@@ -43,6 +45,8 @@ export async function startMicCapture(
     let suppressChunk = false
 
     if (onNoiseDetected) {
+      const prevVoiceHangover = voiceHangover
+
       if (noiseFloor === 0) {
         noiseFloor = rms
       } else if (rms < noiseFloor) {
@@ -80,6 +84,12 @@ export async function startMicCapture(
           lastNoisy = noisy
           onNoiseDetected(noisy)
         }
+
+        if (onVoiceStart && prevVoiceHangover === 0 && voiceHangover > 0) {
+          if (voiceStartMinRms === undefined || rms > voiceStartMinRms) {
+            onVoiceStart()
+          }
+        }
       }
     }
 
@@ -105,12 +115,28 @@ export function stopMicCapture(handle: AudioCaptureHandle | null): void {
   try { handle.audioCtx.close() } catch {}
 }
 
+let masterGain: GainNode | null = null
+
 export async function createPlaybackContext(): Promise<AudioContext> {
   const ctx = new AudioContext()
   if (ctx.state === 'suspended') {
     await ctx.resume()
   }
+  masterGain = ctx.createGain()
+  masterGain.connect(ctx.destination)
   return ctx
+}
+
+export function muteOutput(): void {
+  if (masterGain) {
+    masterGain.gain.setValueAtTime(0, masterGain.context.currentTime)
+  }
+}
+
+export function unmuteOutput(): void {
+  if (masterGain) {
+    masterGain.gain.setValueAtTime(1, masterGain.context.currentTime)
+  }
 }
 
 const activeSources = new Set<AudioBufferSourceNode>()
@@ -145,7 +171,7 @@ export function playAudioFragment(
 
     const src = audioCtx.createBufferSource()
     src.buffer = audioBuffer
-    src.connect(audioCtx.destination)
+    src.connect(masterGain ?? audioCtx.destination)
     activeSources.add(src)
     src.onended = () => activeSources.delete(src)
 

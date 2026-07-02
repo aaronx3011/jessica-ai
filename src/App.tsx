@@ -25,6 +25,8 @@ import {
     createPlaybackContext,
     playAudioFragment,
     stopPlayback,
+    muteOutput,
+    unmuteOutput,
     AudioCaptureHandle,
 } from './services/audioService';
 
@@ -55,6 +57,16 @@ export default function App() {
     const scrollRef = useRef<HTMLParagraphElement>(null);
     const transcriptScrollRef = useRef<HTMLDivElement>(null);
     const wsClosedByError = useRef(false);
+    const lastInterruptRef = useRef(0);
+
+    function interruptVera() {
+        const now = Date.now();
+        if (now - lastInterruptRef.current < 1500) return;
+        lastInterruptRef.current = now;
+        muteOutput();
+        stopPlayback();
+        nextStartTimeRef.current = 0;
+    }
 
     useEffect(() => {
         if (state !== 'chat') return;
@@ -91,6 +103,7 @@ export default function App() {
                 }
                 transcriptRef.current = '';
                 setCurrentTranscript('');
+                unmuteOutput();
                 setIsVeraSpeaking(false);
                 isVeraSpeakingRef.current = false;
             },
@@ -170,17 +183,10 @@ export default function App() {
 
         if (!wsRef.current || wsStatus !== 'ready') return;
 
-        if (isVeraSpeakingRef.current) {
-            stopPlayback();
-            nextStartTimeRef.current = 0;
-            if (playbackCtxRef.current) {
-                playbackCtxRef.current.close();
-                playbackCtxRef.current = null;
-            }
-        }
-
         if (!playbackCtxRef.current) {
             playbackCtxRef.current = await createPlaybackContext();
+        } else if (playbackCtxRef.current.state === 'suspended') {
+            await playbackCtxRef.current.resume();
         }
 
         try {
@@ -191,7 +197,11 @@ export default function App() {
                     }
                 },
                 (noisy) => setIsNoisy(noisy),
-                (rms) => setMicLevel(rms)
+                (rms) => setMicLevel(rms),
+                () => {
+                    if (isVeraSpeakingRef.current) interruptVera();
+                },
+                0.025
             );
             micHandleRef.current = handle;
             setIsStreaming(true);
@@ -233,14 +243,14 @@ export default function App() {
                     user: "Usuario"
                 },
                 mic: {
-                    inactive: "TOCA PARA ACTIVAR EL MICRÓFONO",
-                    active: "TOCA PARA DESACTIVAR",
+                    inactive: "INICIAR CONVERSACIÓN",
+                    active: "FINALIZAR",
                     connecting: "CONECTANDO..."
                 },
                 footer: {
                     rights: "© 2026 QUINTO VECTOR",
                     version: "VOICE ENGINE v1.2 ★",
-                    ready: "MICRÓFONO LISTO"
+                    ready: "SIEMPRE ESCUCHANDO"
                 }
             }
         },
@@ -276,14 +286,14 @@ export default function App() {
                     user: "User"
                 },
                 mic: {
-                    inactive: "TAP TO ACTIVATE THE MICROPHONE",
-                    active: "TAP TO DEACTIVATE",
+                    inactive: "START CONVERSATION",
+                    active: "END",
                     connecting: "CONNECTING..."
                 },
                 footer: {
                     rights: "© 2026 QUINTO VECTOR",
                     version: "VOICE ENGINE v1.2 ★",
-                    ready: "MICROPHONE READY"
+                    ready: "ALWAYS LISTENING"
                 }
             }
         }
