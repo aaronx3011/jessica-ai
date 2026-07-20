@@ -212,11 +212,13 @@ Si necesitas generar imágenes de Vera o referenciar su aspecto visual, debes ap
                     return;
                 }
 
-                if (response.serverContent?.turnComplete) {
-                    console.log('✅ [Gemini] Turn Complete recibido. Resumiendo flujo normal.');
-                    isInterrupted = false;
-                } else if (isInterrupted) {
-                    return;
+                if (response.serverContent) {
+                    if (response.serverContent.turnComplete) {
+                        console.log('✅ [Gemini] Turn Complete recibido.');
+                        isInterrupted = false;
+                    } else if (isInterrupted) {
+                        return;
+                    }
                 }
 
                 if (response.toolCall) {

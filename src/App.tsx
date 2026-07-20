@@ -121,6 +121,7 @@ export default function App() {
             },
             onAudioChunk: (base64) => {
                 if (interruptedRef.current) return;
+
                 if (!isVeraSpeakingRef.current) {
                     veraTurnStartTimeRef.current = Date.now();
                     setIsProtected(true);
@@ -147,9 +148,21 @@ export default function App() {
                 }
                 transcriptRef.current = '';
                 setCurrentTranscript('');
-                unmuteOutput();
-                setIsVeraSpeaking(false);
-                isVeraSpeakingRef.current = false;
+                unmuteOutput(); // Restore output for the next turn
+                
+                // Only clear the speaking state if audio is not still playing
+                const isAudioPlaying = playbackCtxRef.current && nextStartTimeRef.current > playbackCtxRef.current.currentTime;
+                if (!isAudioPlaying) {
+                    setIsVeraSpeaking(false);
+                    isVeraSpeakingRef.current = false;
+                } else if (playbackCtxRef.current) {
+                    // Delay clearing the state until the scheduled audio finishes playing
+                    const delayMs = Math.max(0, (nextStartTimeRef.current - playbackCtxRef.current.currentTime) * 1000);
+                    setTimeout(() => {
+                        setIsVeraSpeaking(false);
+                        isVeraSpeakingRef.current = false;
+                    }, delayMs);
+                }
             },
             onClose: () => {
                 if (wsClosedByError.current) {
@@ -243,7 +256,10 @@ export default function App() {
                 (noisy) => setIsNoisy(noisy),
                 (rms) => setMicLevel(rms),
                 () => {
-                    if (isVeraSpeakingRef.current) interruptVera();
+                    const isAudioPlaying = playbackCtxRef.current && nextStartTimeRef.current > playbackCtxRef.current.currentTime;
+                    if (isVeraSpeakingRef.current || isAudioPlaying) {
+                        interruptVera();
+                    }
                 },
                 0.01,
                 (speaking) => setIsUserSpeaking(speaking)
