@@ -93,6 +93,7 @@ wss.on('connection', async (clientWs, req) => {
         });
 
         let isLive = false;
+        let isInterrupted = false;
 
         geminiWs.on('open', () => {
             console.log('✅ [Gemini] Conexión establecida con Vertex AI');
@@ -211,6 +212,13 @@ Si necesitas generar imágenes de Vera o referenciar su aspecto visual, debes ap
                     return;
                 }
 
+                if (response.serverContent?.turnComplete) {
+                    console.log('✅ [Gemini] Turn Complete recibido. Resumiendo flujo normal.');
+                    isInterrupted = false;
+                } else if (isInterrupted) {
+                    return;
+                }
+
                 if (response.toolCall) {
                     console.log('[TOOL] Gemini solicitó herramienta:', JSON.stringify(response.toolCall, null, 2));
                 }
@@ -258,6 +266,9 @@ Si necesitas generar imágenes de Vera o referenciar su aspecto visual, debes ap
         clientWs.on('message', (data) => {
             try {
                 const rawData: Record<string, any> = JSON.parse(data.toString())
+                if (rawData.type === 'interrupt') {
+                    isInterrupted = true;
+                }
                 handleClientMessage(rawData, geminiWs, isLive)
             } catch (e) {
                 // Ignore malformed messages

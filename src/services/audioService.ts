@@ -4,15 +4,16 @@ export type AudioCaptureHandle = {
   stream: MediaStream
 }
 
-const VOICE_HOLD_CHUNKS = 3
-const CHUNK_SIZE = 4096
+const VOICE_HOLD_CHUNKS = 12
+const CHUNK_SIZE = 1024
 
 export async function startMicCapture(
   onChunk: (base64: string) => void,
   onNoiseDetected?: (noisy: boolean) => void,
   onLevel?: (rms: number) => void,
   onVoiceStart?: () => void,
-  voiceStartMinRms?: number
+  voiceStartMinRms?: number,
+  onSpeakingChange?: (isSpeaking: boolean) => void
 ): Promise<AudioCaptureHandle> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { noiseSuppression: true, echoCancellation: true },
@@ -56,13 +57,14 @@ export async function startMicCapture(
       }
 
       rmsWindow.push(rms)
-      if (rmsWindow.length > 8) rmsWindow.shift()
+      if (rmsWindow.length > 16) rmsWindow.shift()
 
-      if (rmsWindow.length >= 6) {
+      if (rmsWindow.length >= 8) {
         const avg = rmsWindow.reduce((a, b) => a + b, 0) / rmsWindow.length
         const variance = rmsWindow.reduce((sum, v) => sum + (v - avg) ** 2, 0) / rmsWindow.length
 
-        const isVoice = rms > noiseFloor * 3
+        const minRms = voiceStartMinRms !== undefined ? voiceStartMinRms : 0.01
+        const isVoice = rms > noiseFloor * 3 && rms > minRms * 0.5
         const isSteadyNoise = variance < 0.00005 && avg > Math.max(0.02, noiseFloor * 2)
 
         if (isVoice) {
@@ -79,7 +81,7 @@ export async function startMicCapture(
           noisyChunks = Math.max(0, noisyChunks - 1)
         }
 
-        const noisy = noisyChunks > 3
+        const noisy = noisyChunks > 12
         if (noisy !== lastNoisy) {
           lastNoisy = noisy
           onNoiseDetected(noisy)
@@ -89,6 +91,10 @@ export async function startMicCapture(
           if (voiceStartMinRms === undefined || rms > voiceStartMinRms) {
             onVoiceStart()
           }
+        }
+        
+        if (onSpeakingChange && (prevVoiceHangover > 0) !== (voiceHangover > 0)) {
+          onSpeakingChange(voiceHangover > 0)
         }
       }
     }
@@ -129,13 +135,17 @@ export async function createPlaybackContext(): Promise<AudioContext> {
 
 export function muteOutput(): void {
   if (masterGain) {
-    masterGain.gain.setValueAtTime(0, masterGain.context.currentTime)
+    masterGain.gain.cancelScheduledValues(0);
+    masterGain.gain.setValueAtTime(0, masterGain.context.currentTime);
+    masterGain.gain.value = 0;
   }
 }
 
 export function unmuteOutput(): void {
   if (masterGain) {
-    masterGain.gain.setValueAtTime(1, masterGain.context.currentTime)
+    masterGain.gain.cancelScheduledValues(0);
+    masterGain.gain.setValueAtTime(1, masterGain.context.currentTime);
+    masterGain.gain.value = 1;
   }
 }
 
@@ -143,7 +153,10 @@ const activeSources = new Set<AudioBufferSourceNode>()
 
 export function stopPlayback(): void {
   for (const src of activeSources) {
-    try { src.stop() } catch {}
+    try { 
+      src.onended = null;
+      src.stop(0); 
+    } catch {}
     try { src.disconnect() } catch {}
   }
   activeSources.clear()

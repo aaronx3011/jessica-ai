@@ -27,20 +27,20 @@ export function connect(url: string, callbacks: WebSocketCallbacks): WebSocket {
         return
       }
 
-      if (msg.serverContent?.modelTurn?.parts) {
-        for (const part of msg.serverContent.modelTurn.parts) {
-          if (part.inlineData?.data) {
-            callbacks.onAudioChunk(part.inlineData.data)
-          }
-        }
-      }
-
       if (msg.outputTranscription?.text) {
         callbacks.onTranscript(msg.outputTranscription.text)
       }
 
       if (msg.serverContent?.outputTranscription?.text) {
         callbacks.onTranscript(msg.serverContent.outputTranscription.text)
+      }
+
+      if (msg.serverContent?.modelTurn?.parts) {
+        for (const part of msg.serverContent.modelTurn.parts) {
+          if (part.inlineData?.data) {
+            callbacks.onAudioChunk(part.inlineData.data)
+          }
+        }
       }
 
       if (msg.serverContent?.turnComplete) {

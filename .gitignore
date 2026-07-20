@@ -5,3 +5,8 @@ public/
 .env*
   !.env.example
 service-account.json
+
+# Agents and skills
+.agents/
+AGENTS.md
+docs/agents/

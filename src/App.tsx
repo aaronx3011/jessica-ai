@@ -49,6 +49,8 @@ export default function App() {
     const [wsError, setWsError] = useState('');
     const [isNoisy, setIsNoisy] = useState(false);
     const [micLevel, setMicLevel] = useState(0);
+    const [isUserSpeaking, setIsUserSpeaking] = useState(false);
+    const [isProtected, setIsProtected] = useState(false);
 
     const wsRef = useRef<WebSocket | null>(null);
     const micHandleRef = useRef<AudioCaptureHandle | null>(null);
@@ -56,22 +58,41 @@ export default function App() {
     const nextStartTimeRef = useRef<number>(0);
     const transcriptRef = useRef('');
     const isVeraSpeakingRef = useRef(false);
+    const veraTurnStartTimeRef = useRef(0);
+    const protectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const scrollRef = useRef<HTMLParagraphElement>(null);
     const transcriptScrollRef = useRef<HTMLDivElement>(null);
     const wsClosedByError = useRef(false);
     const lastInterruptRef = useRef(0);
     const interruptedRef = useRef(false);
 
-    function interruptVera() {
+    function interruptVera(hardReset = false) {
         const now = Date.now();
         if (now - lastInterruptRef.current < 1500) return;
+        
+        // Prevent interruption within the first 1s of Vera starting to speak
+        if (isVeraSpeakingRef.current && now - veraTurnStartTimeRef.current < 1000) {
+            return;
+        }
+        
         lastInterruptRef.current = now;
+        
         muteOutput();
         stopPlayback();
         interruptedRef.current = true;
         setIsInterrupted(true);
         if (wsRef.current) sendInterrupt(wsRef.current);
         nextStartTimeRef.current = 0;
+
+        if (hardReset) {
+            if (playbackCtxRef.current) {
+                playbackCtxRef.current.close().catch(() => {});
+                playbackCtxRef.current = null;
+            }
+            createPlaybackContext().then(ctx => {
+                playbackCtxRef.current = ctx;
+            });
+        }
     }
 
     useEffect(() => {
@@ -89,11 +110,25 @@ export default function App() {
             onTranscript: (text) => {
                 transcriptRef.current += text;
                 setCurrentTranscript(transcriptRef.current);
+                if (!isVeraSpeakingRef.current) {
+                    veraTurnStartTimeRef.current = Date.now();
+                    setIsProtected(true);
+                    if (protectionTimeoutRef.current) clearTimeout(protectionTimeoutRef.current);
+                    protectionTimeoutRef.current = setTimeout(() => setIsProtected(false), 1000);
+                }
                 setIsVeraSpeaking(true);
                 isVeraSpeakingRef.current = true;
             },
             onAudioChunk: (base64) => {
                 if (interruptedRef.current) return;
+                if (!isVeraSpeakingRef.current) {
+                    veraTurnStartTimeRef.current = Date.now();
+                    setIsProtected(true);
+                    if (protectionTimeoutRef.current) clearTimeout(protectionTimeoutRef.current);
+                    protectionTimeoutRef.current = setTimeout(() => setIsProtected(false), 1000);
+                }
+                setIsVeraSpeaking(true);
+                isVeraSpeakingRef.current = true;
                 if (playbackCtxRef.current) {
                     playAudioFragment(playbackCtxRef.current, base64, nextStartTimeRef);
                 }
@@ -210,7 +245,8 @@ export default function App() {
                 () => {
                     if (isVeraSpeakingRef.current) interruptVera();
                 },
-                0.025
+                0.01,
+                (speaking) => setIsUserSpeaking(speaking)
             );
             micHandleRef.current = handle;
             setIsStreaming(true);
@@ -407,13 +443,16 @@ export default function App() {
                                     <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/20 via-transparent to-transparent pointer-events-none" />
                                 </motion.div>
 
-                                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 glass-panel rounded-full border border-white/10 flex items-center gap-3">
+                                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 glass-panel rounded-full border border-white/10 flex items-center gap-3 z-10">
                                     <div className={`w-2 h-2 rounded-full ${isInterrupted ? 'bg-amber-400 animate-pulse' : isVeraSpeaking || isStreaming ? 'bg-cyan-400 animate-pulse' : 'bg-slate-600'}`} />
                                     <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
                                         {getStatusText()}
                                     </span>
                                 </div>
-                                <div className="absolute -bottom-14 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full flex items-center gap-2 whitespace-nowrap transition-all duration-300"
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-center gap-3 mb-8 h-8 relative z-20">
+                                <div className="px-3 py-1 rounded-full flex items-center gap-2 whitespace-nowrap transition-all duration-300"
                                     style={{
                                         backgroundColor: isNoisy ? 'rgba(251, 191, 36, 0.15)' : 'rgba(255, 255, 255, 0.03)',
                                         borderColor: isNoisy ? 'rgba(251, 191, 36, 0.4)' : 'rgba(255, 255, 255, 0.05)',
@@ -437,8 +476,38 @@ export default function App() {
                                         </>
                                     )}
                                 </div>
+                                <AnimatePresence>
+                                    {isUserSpeaking && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.9 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.9 }}
+                                            className="px-4 py-1.5 rounded-full flex items-center gap-2 whitespace-nowrap bg-emerald-500/20 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                                        >
+                                            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
+                                                {lang === 'es' ? 'USUARIO HABLANDO' : 'USER SPEAKING'}
+                                            </span>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                                <AnimatePresence>
+                                    {isProtected && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.9 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.9 }}
+                                            className="px-4 py-1.5 rounded-full flex items-center gap-2 whitespace-nowrap bg-purple-500/20 border border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.3)]"
+                                        >
+                                            <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                                            <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">
+                                                {lang === 'es' ? 'PROTECCIÓN 1s' : '1s SHIELD'}
+                                            </span>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                                 {wsError && (
-                                    <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 text-[9px] text-red-400 font-mono whitespace-nowrap">
+                                    <div className="text-[9px] text-red-400 font-mono whitespace-nowrap">
                                         {wsError}
                                     </div>
                                 )}
@@ -518,6 +587,18 @@ export default function App() {
                                         }`}
                                 >
                                     <FileAudio size={24} />
+                                </button>
+                                
+                                <button
+                                    onClick={() => interruptVera(true)}
+                                    disabled={!isVeraSpeaking && !isStreaming}
+                                    className={`p-4 rounded-2xl transition-all ${isVeraSpeaking || isStreaming
+                                        ? 'glass-panel border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.1)]'
+                                        : 'glass-panel border-white/5 text-slate-600 cursor-not-allowed'
+                                        }`}
+                                    title="Interrupt Vera"
+                                >
+                                    <VolumeX size={24} />
                                 </button>
                             </div>
                         </div>
