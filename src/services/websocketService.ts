@@ -75,3 +75,8 @@ export function sendAudioChunk(ws: WebSocket, base64: string): void {
     },
   }))
 }
+
+export function sendInterrupt(ws: WebSocket): void {
+  if (ws.readyState !== WebSocket.OPEN) return
+  ws.send(JSON.stringify({ type: 'interrupt' }))
+}

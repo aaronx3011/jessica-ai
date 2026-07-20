@@ -39,6 +39,43 @@ server.on('upgrade', (req, socket, head) => {
   });
 });
 
+export interface GeminiWsLike {
+  readyState: number
+  send: (data: string) => void
+}
+
+export function handleClientMessage(
+  rawData: Record<string, any>,
+  geminiWs: GeminiWsLike,
+  isLive: boolean
+): void {
+  if (!isLive || geminiWs.readyState !== WebSocket.OPEN) return
+
+  if (rawData.type === 'interrupt') {
+    console.log('[Interrupt] Enviando barge-in a Gemini');
+    geminiWs.send(JSON.stringify({
+      clientContent: {
+        turns: [],
+        turnComplete: true,
+      },
+    }))
+    return
+  }
+
+  const mediaData = rawData.realtimeInput?.mediaChunks?.[0]?.data as string | undefined
+  if (mediaData) {
+    console.log('[AUDIO] Enviando chunk de audio a Gemini, tamaño:', mediaData.length, 'bytes')
+    geminiWs.send(JSON.stringify({
+      realtimeInput: {
+        mediaChunks: [{
+          data: mediaData,
+          mimeType: "audio/pcm;rate=16000",
+        }],
+      },
+    }))
+  }
+}
+
 wss.on('connection', async (clientWs, req) => {
     console.log('🔌 [Client] Nueva conexión de navegador');
 
@@ -219,26 +256,11 @@ Si necesitas generar imágenes de Vera o referenciar su aspecto visual, debes ap
         });
 
         clientWs.on('message', (data) => {
-            if (isLive && geminiWs.readyState === WebSocket.OPEN) {
-                try {
-                    const rawData = JSON.parse(data.toString());
-
-                    if (rawData.realtimeInput?.mediaChunks?.[0]?.data) {
-                        const chunkSize = rawData.realtimeInput.mediaChunks[0].data.length;
-                        console.log('[AUDIO] Enviando chunk de audio a Gemini, tamaño:', chunkSize, 'bytes');
-                    }
-
-                    const payload = {
-                        realtimeInput: {
-                            mediaChunks: [{
-                                data: rawData.realtimeInput.mediaChunks[0].data,
-                                mimeType: "audio/pcm;rate=16000"
-                            }]
-                        }
-                    };
-                    geminiWs.send(JSON.stringify(payload));
-                } catch (e) {
-                }
+            try {
+                const rawData: Record<string, any> = JSON.parse(data.toString())
+                handleClientMessage(rawData, geminiWs, isLive)
+            } catch (e) {
+                // Ignore malformed messages
             }
         });
 

@@ -17,6 +17,7 @@ import veraLogo from './assets/images/regenerated_image_1778642997714.png'
 import {
     connect,
     sendAudioChunk,
+    sendInterrupt,
     getWebSocketUrl,
 } from './services/websocketService';
 import {
@@ -38,6 +39,7 @@ export default function App() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const [isVeraSpeaking, setIsVeraSpeaking] = useState(false);
+    const [isInterrupted, setIsInterrupted] = useState(false);
     const [currentTranscript, setCurrentTranscript] = useState('');
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [showTranscription, setShowTranscription] = useState(false);
@@ -58,6 +60,7 @@ export default function App() {
     const transcriptScrollRef = useRef<HTMLDivElement>(null);
     const wsClosedByError = useRef(false);
     const lastInterruptRef = useRef(0);
+    const interruptedRef = useRef(false);
 
     function interruptVera() {
         const now = Date.now();
@@ -65,6 +68,9 @@ export default function App() {
         lastInterruptRef.current = now;
         muteOutput();
         stopPlayback();
+        interruptedRef.current = true;
+        setIsInterrupted(true);
+        if (wsRef.current) sendInterrupt(wsRef.current);
         nextStartTimeRef.current = 0;
     }
 
@@ -87,11 +93,14 @@ export default function App() {
                 isVeraSpeakingRef.current = true;
             },
             onAudioChunk: (base64) => {
+                if (interruptedRef.current) return;
                 if (playbackCtxRef.current) {
                     playAudioFragment(playbackCtxRef.current, base64, nextStartTimeRef);
                 }
             },
             onTurnComplete: () => {
+                interruptedRef.current = false;
+                setIsInterrupted(false);
                 const text = transcriptRef.current.trim();
                 if (text) {
                     setMessages(prev => [...prev, {
@@ -304,6 +313,7 @@ export default function App() {
 
     const getStatusText = () => {
         if (wsStatus === 'connecting') return t.chat.status.connecting;
+        if (isInterrupted) return lang === 'es' ? 'Interrumpiendo...' : 'Interrupting...';
         if (isVeraSpeaking) return t.chat.status.speaking;
         if (isStreaming) return t.chat.status.listening;
         return t.chat.status.waiting;
@@ -398,7 +408,7 @@ export default function App() {
                                 </motion.div>
 
                                 <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 glass-panel rounded-full border border-white/10 flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${isVeraSpeaking || isStreaming ? 'bg-cyan-400 animate-pulse' : 'bg-slate-600'}`} />
+                                    <div className={`w-2 h-2 rounded-full ${isInterrupted ? 'bg-amber-400 animate-pulse' : isVeraSpeaking || isStreaming ? 'bg-cyan-400 animate-pulse' : 'bg-slate-600'}`} />
                                     <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
                                         {getStatusText()}
                                     </span>
