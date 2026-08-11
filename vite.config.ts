@@ -10,9 +10,8 @@ export default defineConfig(({ mode }) => {
     build: { outDir: 'public' },
     server: {
       proxy: {
-        '/ws': {
+        '/api': {
           target: `http://localhost:${env.PORT || 3000}`,
-          ws: true,
         },
       },
     },

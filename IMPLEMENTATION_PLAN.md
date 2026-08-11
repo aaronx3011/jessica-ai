@@ -1,5 +1,7 @@
 # Jessica AI — Production Readiness Implementation Plan
 
+> **Status:** Superseded for the chat path. The server-side WebSocket proxy (Vertex AI `BidiGenerateContent`) described in this plan has been replaced by a **browser-direct Gemini Live connection**: the server only mints an ephemeral presigned URL (`POST /api/chat-url`), and the frontend connects straight to `generativelanguage.googleapis.com` using the Gemini Developer API (`@google/genai`, Dev API camelCase wire format). See `src/services/chatSetup.ts` and `src/services/websocketService.ts`.
+
 > **Domain:** https://jessica.beevr.voyage
 > **Stack:** Vite + React 19 (TS), Express 5, ws, MongoDB Atlas, Vertex AI Gemini
 > **Auth:** Google OAuth 2.0 + express-session + connect-mongo

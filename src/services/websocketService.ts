@@ -1,3 +1,5 @@
+import { buildSetupMessage } from './chatSetup'
+
 export type WebSocketCallbacks = {
   onReady: () => void
   onTranscript: (text: string) => void
@@ -7,22 +9,31 @@ export type WebSocketCallbacks = {
   onError: (error: string) => void
 }
 
-export function getWebSocketUrl(): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws`
+export interface ChatUrl {
+  url: string
+  expiresAt: string
+}
+
+export async function fetchChatUrl(): Promise<ChatUrl> {
+  const res = await fetch('/api/chat-url', { method: 'POST' })
+  if (!res.ok) {
+    throw new Error(`No se pudo obtener la URL de chat (${res.status})`)
+  }
+  return res.json()
 }
 
 export function connect(url: string, callbacks: WebSocketCallbacks): WebSocket {
   const ws = new WebSocket(url)
 
   ws.onopen = () => {
-    console.log('[WS] Conectado al servidor')
+    console.log('[WS] Conectado a Gemini Live')
+    ws.send(JSON.stringify(buildSetupMessage()))
   }
 
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data)
-      if (msg.status === 'ready') {
+      if (msg.setupComplete) {
         callbacks.onReady()
         return
       }
@@ -58,7 +69,7 @@ export function connect(url: string, callbacks: WebSocketCallbacks): WebSocket {
 
   ws.onerror = () => {
     console.error('[WS] Error de conexión')
-    callbacks.onError('Error de conexión con el servidor')
+    callbacks.onError('Error de conexión con Gemini Live')
   }
 
   return ws
@@ -78,5 +89,10 @@ export function sendAudioChunk(ws: WebSocket, base64: string): void {
 
 export function sendInterrupt(ws: WebSocket): void {
   if (ws.readyState !== WebSocket.OPEN) return
-  ws.send(JSON.stringify({ type: 'interrupt' }))
+  ws.send(JSON.stringify({
+    clientContent: {
+      turns: [],
+      turnComplete: true,
+    },
+  }))
 }

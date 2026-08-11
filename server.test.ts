@@ -1,52 +1,18 @@
-import { describe, it, expect, vi } from 'vitest'
-import { handleClientMessage } from './server'
+import { describe, it, expect } from 'vitest'
+import { buildChatUrl } from './server'
 
-describe('handleClientMessage', () => {
-  it('forwards realtimeInput to Gemini as-is', () => {
-    const send = vi.fn()
-    const geminiWs = { readyState: 1, send } as any
-    const rawData = {
-      realtimeInput: {
-        mediaChunks: [{ data: 'abcd', mimeType: 'audio/pcm;rate=16000' }],
-      },
-    }
+describe('buildChatUrl', () => {
+  it('builds a presigned URL to the constrained Gemini Live WebSocket with the token', () => {
+    const url = buildChatUrl('auth_tokens/abc123')
 
-    handleClientMessage(rawData, geminiWs, true)
-
-    expect(send).toHaveBeenCalledWith(JSON.stringify(rawData))
-  })
-
-  it('sends clientContent barge-in on interrupt message', () => {
-    const send = vi.fn()
-    const geminiWs = { readyState: 1, send } as any
-
-    handleClientMessage({ type: 'interrupt' }, geminiWs, true)
-
-    expect(send).toHaveBeenCalledWith(
-      JSON.stringify({
-        clientContent: {
-          turns: [],
-          turnComplete: true,
-        },
-      })
+    expect(url).toBe(
+      'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=auth_tokens%2Fabc123'
     )
   })
 
-  it('does nothing when isLive is false', () => {
-    const send = vi.fn()
-    const geminiWs = { readyState: 1, send } as any
+  it('URL-encodes the token so it is safe in a query parameter', () => {
+    const url = buildChatUrl('auth_tokens/a b/c')
 
-    handleClientMessage({ type: 'interrupt' }, geminiWs, false)
-
-    expect(send).not.toHaveBeenCalled()
-  })
-
-  it('does nothing when geminiWs is not OPEN', () => {
-    const send = vi.fn()
-    const geminiWs = { readyState: 3, send } as any
-
-    handleClientMessage({ type: 'interrupt' }, geminiWs, true)
-
-    expect(send).not.toHaveBeenCalled()
+    expect(url).toContain('access_token=auth_tokens%2Fa%20b%2Fc')
   })
 })

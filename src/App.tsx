@@ -18,7 +18,7 @@ import {
     connect,
     sendAudioChunk,
     sendInterrupt,
-    getWebSocketUrl,
+    fetchChatUrl,
 } from './services/websocketService';
 import {
     startMicCapture,
@@ -101,12 +101,15 @@ export default function App() {
         setWsStatus('connecting');
         setWsError('');
         wsClosedByError.current = false;
+        let cancelled = false;
 
-        const url = getWebSocketUrl();
-        const ws = connect(url, {
-            onReady: () => {
-                setWsStatus('ready');
-            },
+        fetchChatUrl()
+            .then(({ url }) => {
+                if (cancelled) return;
+                const ws = connect(url, {
+                    onReady: () => {
+                        setWsStatus('ready');
+                    },
             onTranscript: (text) => {
                 transcriptRef.current += text;
                 setCurrentTranscript(transcriptRef.current);
@@ -179,12 +182,20 @@ export default function App() {
         });
 
         wsRef.current = ws;
+        })
+        .catch((err) => {
+            if (cancelled) return;
+            wsClosedByError.current = false;
+            setWsStatus('disconnected');
+            setWsError(err instanceof Error ? err.message : String(err));
+        });
 
         createPlaybackContext().then(ctx => {
             playbackCtxRef.current = ctx;
         });
 
         return () => {
+            cancelled = true;
             if (micHandleRef.current) {
                 stopMicCapture(micHandleRef.current);
                 micHandleRef.current = null;
