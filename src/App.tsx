@@ -15,11 +15,10 @@ import { AudioWave } from './components/AudioWave';
 import veraPortrait from './assets/images/vera-portrait.png'
 import veraLogo from './assets/images/regenerated_image_1778642997714.png'
 import {
-    connect,
-    sendAudioChunk,
-    sendInterrupt,
+    openLiveSession,
     fetchChatUrl,
 } from './services/websocketService';
+import type { LiveSession } from './services/websocketService';
 import {
     startMicCapture,
     stopMicCapture,
@@ -34,6 +33,8 @@ import {
 const VERA_FULL = veraPortrait;
 const VERA_FACE = veraPortrait;
 
+const INTERRUPT_SAFETY_TIMEOUT_MS = 10000;
+
 export default function App() {
     const [state, setState] = useState<AppState>('chat');
     const [messages, setMessages] = useState<Message[]>([]);
@@ -45,14 +46,14 @@ export default function App() {
     const [showTranscription, setShowTranscription] = useState(false);
     const [lang, setLang] = useState<'es' | 'en'>('es');
 
-    const [wsStatus, setWsStatus] = useState<'disconnected' | 'connecting' | 'ready'>('disconnected');
+    const [wsStatus, setWsStatus] = useState<'connecting' | 'ready' | 'reconnecting' | 'disconnected'>('disconnected');
     const [wsError, setWsError] = useState('');
     const [isNoisy, setIsNoisy] = useState(false);
     const [micLevel, setMicLevel] = useState(0);
     const [isUserSpeaking, setIsUserSpeaking] = useState(false);
     const [isProtected, setIsProtected] = useState(false);
 
-    const wsRef = useRef<WebSocket | null>(null);
+    const sessionRef = useRef<LiveSession | null>(null);
     const micHandleRef = useRef<AudioCaptureHandle | null>(null);
     const playbackCtxRef = useRef<AudioContext | null>(null);
     const nextStartTimeRef = useRef<number>(0);
@@ -62,9 +63,37 @@ export default function App() {
     const protectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const scrollRef = useRef<HTMLParagraphElement>(null);
     const transcriptScrollRef = useRef<HTMLDivElement>(null);
-    const wsClosedByError = useRef(false);
     const lastInterruptRef = useRef(0);
     const interruptedRef = useRef(false);
+    const interruptSafetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    function clearInterruptState() {
+        stopInterruptProtection();
+        interruptedRef.current = false;
+        setIsInterrupted(false);
+    }
+
+    function stopInterruptProtection() {
+        if (interruptSafetyTimeoutRef.current) {
+            clearTimeout(interruptSafetyTimeoutRef.current);
+            interruptSafetyTimeoutRef.current = null;
+        }
+    }
+
+    function armInterruptSafetyTimeout() {
+        stopInterruptProtection();
+        interruptSafetyTimeoutRef.current = setTimeout(() => {
+            interruptSafetyTimeoutRef.current = null;
+            if (interruptedRef.current) {
+                clearInterruptState();
+                transcriptRef.current = '';
+                setCurrentTranscript('');
+                setIsVeraSpeaking(false);
+                isVeraSpeakingRef.current = false;
+                unmuteOutput();
+            }
+        }, INTERRUPT_SAFETY_TIMEOUT_MS);
+    }
 
     function interruptVera(hardReset = false) {
         const now = Date.now();
@@ -81,7 +110,8 @@ export default function App() {
         stopPlayback();
         interruptedRef.current = true;
         setIsInterrupted(true);
-        if (wsRef.current) sendInterrupt(wsRef.current);
+        armInterruptSafetyTimeout();
+        sessionRef.current?.interrupt();
         nextStartTimeRef.current = 0;
 
         if (hardReset) {
@@ -100,16 +130,24 @@ export default function App() {
 
         setWsStatus('connecting');
         setWsError('');
-        wsClosedByError.current = false;
-        let cancelled = false;
 
-        fetchChatUrl()
-            .then(({ url }) => {
-                if (cancelled) return;
-                const ws = connect(url, {
-                    onReady: () => {
-                        setWsStatus('ready');
-                    },
+        const session = openLiveSession(fetchChatUrl, {
+            onReady: () => {
+                setWsError('');
+            },
+            onReconnected: () => {
+                clearInterruptState();
+                stopPlayback();
+                nextStartTimeRef.current = 0;
+                setIsVeraSpeaking(false);
+                isVeraSpeakingRef.current = false;
+                transcriptRef.current = '';
+                setCurrentTranscript('');
+                setWsError('');
+            },
+            onStatus: (status) => {
+                setWsStatus(status);
+            },
             onTranscript: (text) => {
                 transcriptRef.current += text;
                 setCurrentTranscript(transcriptRef.current);
@@ -138,8 +176,7 @@ export default function App() {
                 }
             },
             onTurnComplete: () => {
-                interruptedRef.current = false;
-                setIsInterrupted(false);
+                clearInterruptState();
                 const text = transcriptRef.current.trim();
                 if (text) {
                     setMessages(prev => [...prev, {
@@ -167,41 +204,34 @@ export default function App() {
                     }, delayMs);
                 }
             },
+            onInterrupted: () => {
+                clearInterruptState();
+                transcriptRef.current = '';
+                setCurrentTranscript('');
+                unmuteOutput();
+            },
             onClose: () => {
-                if (wsClosedByError.current) {
-                    wsClosedByError.current = false;
-                    return;
-                }
                 setWsStatus('disconnected');
             },
             onError: (err) => {
-                wsClosedByError.current = true;
-                setWsStatus('disconnected');
                 setWsError(err);
             },
         });
 
-        wsRef.current = ws;
-        })
-        .catch((err) => {
-            if (cancelled) return;
-            wsClosedByError.current = false;
-            setWsStatus('disconnected');
-            setWsError(err instanceof Error ? err.message : String(err));
-        });
+        sessionRef.current = session;
 
         createPlaybackContext().then(ctx => {
             playbackCtxRef.current = ctx;
         });
 
         return () => {
-            cancelled = true;
+            stopInterruptProtection();
             if (micHandleRef.current) {
                 stopMicCapture(micHandleRef.current);
                 micHandleRef.current = null;
             }
-            wsRef.current?.close();
-            wsRef.current = null;
+            session.close();
+            sessionRef.current = null;
             if (playbackCtxRef.current) {
                 playbackCtxRef.current.close();
                 playbackCtxRef.current = null;
@@ -238,19 +268,7 @@ export default function App() {
         }
     }, [messages, currentTranscript]);
 
-    const toggleMic = async () => {
-        if (isStreaming) {
-            if (micHandleRef.current) {
-                stopMicCapture(micHandleRef.current);
-                micHandleRef.current = null;
-            }
-            setIsStreaming(false);
-            setIsNoisy(false);
-            return;
-        }
-
-        if (!wsRef.current || wsStatus !== 'ready') return;
-
+    const beginMicCapture = async () => {
         if (!playbackCtxRef.current) {
             playbackCtxRef.current = await createPlaybackContext();
         } else if (playbackCtxRef.current.state === 'suspended') {
@@ -260,9 +278,7 @@ export default function App() {
         try {
             const handle = await startMicCapture(
                 (base64) => {
-                    if (wsRef.current) {
-                        sendAudioChunk(wsRef.current, base64);
-                    }
+                    sessionRef.current?.sendAudio(base64);
                 },
                 (noisy) => setIsNoisy(noisy),
                 (rms) => setMicLevel(rms),
@@ -277,9 +293,27 @@ export default function App() {
             );
             micHandleRef.current = handle;
             setIsStreaming(true);
+            return true;
         } catch (err) {
             console.error('[Mic] Error:', err);
+            return false;
         }
+    };
+
+    const toggleMic = async () => {
+        if (isStreaming) {
+            if (micHandleRef.current) {
+                stopMicCapture(micHandleRef.current);
+                micHandleRef.current = null;
+            }
+            setIsStreaming(false);
+            setIsNoisy(false);
+            return;
+        }
+
+        if (!sessionRef.current || wsStatus !== 'ready') return;
+
+        await beginMicCapture();
     };
 
     const translations = {
@@ -305,7 +339,8 @@ export default function App() {
                     speaking: "Vera está hablando...",
                     listening: "Escuchando...",
                     waiting: "Esperando voz...",
-                    connecting: "Conectando..."
+                    connecting: "Conectando...",
+                    reconnecting: "Reconectando..."
                 },
                 transcription: {
                     title: "Transcripción",
@@ -317,7 +352,8 @@ export default function App() {
                 mic: {
                     inactive: "INICIAR CONVERSACIÓN",
                     active: "FINALIZAR",
-                    connecting: "CONECTANDO..."
+                    connecting: "CONECTANDO...",
+                    reconnecting: "RECONECTANDO..."
                 },
                 footer: {
                     rights: "© 2026 QUINTO VECTOR",
@@ -348,7 +384,8 @@ export default function App() {
                     speaking: "Vera is speaking...",
                     listening: "Listening...",
                     waiting: "Waiting for voice...",
-                    connecting: "Connecting..."
+                    connecting: "Connecting...",
+                    reconnecting: "Reconnecting..."
                 },
                 transcription: {
                     title: "Transcription",
@@ -360,7 +397,8 @@ export default function App() {
                 mic: {
                     inactive: "START CONVERSATION",
                     active: "END",
-                    connecting: "CONNECTING..."
+                    connecting: "CONNECTING...",
+                    reconnecting: "RECONNECTING..."
                 },
                 footer: {
                     rights: "© 2026 QUINTO VECTOR",
@@ -376,6 +414,7 @@ export default function App() {
 
     const getStatusText = () => {
         if (wsStatus === 'connecting') return t.chat.status.connecting;
+        if (wsStatus === 'reconnecting') return t.chat.status.reconnecting;
         if (isInterrupted) return lang === 'es' ? 'Interrumpiendo...' : 'Interrupting...';
         if (isVeraSpeaking) return t.chat.status.speaking;
         if (isStreaming) return t.chat.status.listening;
@@ -563,7 +602,7 @@ export default function App() {
                                         whileHover={{ scale: 1.05 }}
                                         whileTap={{ scale: 0.95 }}
                                         onClick={toggleMic}
-                                        disabled={wsStatus === 'connecting'}
+                                        disabled={wsStatus !== 'ready'}
                                         className={`w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center transition-all ${isStreaming
                                             ? 'bg-slate-800 text-red-400 border-2 border-red-400/50'
                                             : wsStatus !== 'ready'
@@ -574,11 +613,13 @@ export default function App() {
                                         {isStreaming ? <MicOff size={32} /> : <Mic size={32} />}
                                     </motion.button>
                                     <span className="text-[9px] text-slate-500 font-mono uppercase tracking-widest text-center leading-relaxed">
-                                        {wsStatus !== 'ready'
-                                            ? t.chat.mic.connecting
-                                            : isStreaming
-                                                ? t.chat.mic.active
-                                                : t.chat.mic.inactive}
+                                        {wsStatus === 'reconnecting'
+                                            ? t.chat.mic.reconnecting
+                                            : wsStatus !== 'ready'
+                                                ? t.chat.mic.connecting
+                                                : isStreaming
+                                                    ? t.chat.mic.active
+                                                    : t.chat.mic.inactive}
                                     </span>
                                     {isStreaming && (
                                         <div className="flex flex-col items-center gap-1.5 mt-2 w-full max-w-[140px]">

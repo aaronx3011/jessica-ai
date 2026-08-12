@@ -151,6 +151,8 @@ export function unmuteOutput(): void {
 
 const activeSources = new Set<AudioBufferSourceNode>()
 
+const MAX_QUEUE_AHEAD_SECONDS = 2
+
 export function stopPlayback(): void {
   for (const src of activeSources) {
     try { 
@@ -168,6 +170,10 @@ export function playAudioFragment(
   nextStartTime: { current: number }
 ): void {
   try {
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {})
+    }
+
     const binary = atob(base64)
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) {
@@ -189,7 +195,8 @@ export function playAudioFragment(
     src.onended = () => activeSources.delete(src)
 
     const now = audioCtx.currentTime
-    if (nextStartTime.current < now) {
+    const queueAhead = nextStartTime.current - now
+    if (queueAhead < 0 || queueAhead >= MAX_QUEUE_AHEAD_SECONDS) {
       nextStartTime.current = now + 0.1
     }
     src.start(nextStartTime.current)
